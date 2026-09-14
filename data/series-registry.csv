@@ -1,0 +1,62 @@
+series_id,label,source,source_id,field,group,notes
+DGS2,UST 2y yield %,FRED,DGS2,,US rates
+DGS5,UST 5y yield %,FRED,DGS5,,US rates
+DGS10,UST 10y yield %,FRED,DGS10,,US rates
+DGS30,UST 30y yield %,FRED,DGS30,,US rates
+DGS3MO,UST 3m yield %,FRED,DGS3MO,,US rates
+DFII10,UST 10y real (TIPS) %,FRED,DFII10,,US rates
+DFII5,UST 5y real (TIPS) %,FRED,DFII5,,US rates
+T10YIE,10y breakeven inflation %,FRED,T10YIE,,US rates
+T5YIFR,5y5y forward inflation %,FRED,T5YIFR,,US rates
+DFF,Fed funds effective %,FRED,DFF,,US policy
+DFEDTARU,Fed target upper %,FRED,DFEDTARU,,US policy
+DFEDTARL,Fed target lower %,FRED,DFEDTARL,,US policy
+SOFR,SOFR %,FRED,SOFR,,US policy
+WALCL,Fed balance sheet $m,FRED,WALCL,,Liquidity
+RRPONTSYD,Fed ON RRP $bn,FRED,RRPONTSYD,,Liquidity
+WTREGEN,Treasury General Account $bn,FRED,WTREGEN,,Liquidity
+M2SL,US M2 $bn (SA),FRED,M2SL,,Liquidity
+VIXCLS,VIX close,FRED,VIXCLS,,Risk
+DTWEXBGS,Broad USD index (Fed),FRED,DTWEXBGS,,Risk,DXY proxy
+BAMLH0A0HYM2,US HY OAS %,FRED,BAMLH0A0HYM2,,Credit,3y rolling history from Apr 2026
+BAMLC0A0CM,US IG OAS %,FRED,BAMLC0A0CM,,Credit,3y rolling history from Apr 2026
+NFCI,Chicago Fed NFCI,FRED,NFCI,,Conditions
+ANFCI,Chicago Fed adj NFCI,FRED,ANFCI,,Conditions
+DCOILWTICO,WTI $/bbl,FRED,DCOILWTICO,,Commodities
+DCOILBRENTEU,Brent $/bbl,FRED,DCOILBRENTEU,,Commodities
+DEXSIUS,USDSGD (Fed H.10),FRED,DEXSIUS,,FX
+DEXJPUS,USDJPY (Fed H.10),FRED,DEXJPUS,,FX
+DEXCHUS,USDCNY (Fed H.10),FRED,DEXCHUS,,FX
+ICSA,Initial jobless claims,FRED,ICSA,,US macro
+PAYEMS,Nonfarm payrolls (k),FRED,PAYEMS,,US macro
+UNRATE,Unemployment rate %,FRED,UNRATE,,US macro
+CPIAUCSL,CPI index,FRED,CPIAUCSL,,US macro
+PCEPILFE,Core PCE index,FRED,PCEPILFE,,US macro
+GOLD,Gold $/oz,OANDA,XAU_USD,c,Commodities,"OANDA daily mid close, NY 17:00 alignment (was stooq xauusd)"
+COPPER,Copper $/lb,OANDA,XCU_USD,c,Commodities,"OANDA copper CFD — if ERROR, your entity lacks it: run probeOanda()"
+DXY,US Dollar Index,NONE,,,FX,"no free daily source (Stooq blocks Google, OANDA has no index) — use DTWEXBGS"
+BTCUSD,Bitcoin USD,OANDA,BTC_USD,c,Crypto,"OANDA — if ERROR, your entity lacks crypto: run probeOanda()"
+ETHUSD,Ether USD,OANDA,ETH_USD,c,Crypto,"OANDA — if ERROR, your entity lacks crypto: run probeOanda()"
+SORA_ON,SORA overnight %,MAS_GW,SORA,sora,SG rates,gateway - probeMasGw() to confirm
+SORA_1M,1M compounded SORA %,MAS_GW,SORA,comp_sora_1m,SG rates,gateway - probeMasGw() to confirm
+SORA_3M,3M compounded SORA %,MAS_GW,SORA,comp_sora_3m,SG rates,gateway - probeMasGw() to confirm
+SORA_6M,6M compounded SORA %,MAS_GW,SORA,comp_sora_6m,SG rates,gateway - probeMasGw() to confirm
+SORA_INDEX,SORA compounding index,MAS_GW,SORA,sora_index,SG rates,confirmed - compounds SORA over any period the way loan contracts do
+SG_SF_DEPO,MAS standing facility deposit %,MAS_GW,SORA,standing_facility_deposit,SG rates,confirmed - policy corridor floor
+SG_SF_BORR,MAS standing facility borrow %,MAS_GW,SORA,standing_facility_borrow,SG rates,confirmed - policy corridor ceiling
+SORA_VOL,SORA aggregate volume,MAS_GW,SORA,aggregate_volume,SG rates,confirmed - depth of the fixing
+SOR_AVG,SOR average % (discontinued 2024),MAS_GW,SORA,sor_average,SG rates,"confirmed - history only, ends 1 Jan 2024"
+TBILL_6M,6M T-bill cut-off yield %,MAS_V1,"bondsandbills/m/listbondsandbills|bill_bond_ind:""bill"" AND auction_tenor:0.5|auction_date",cutoff_yield,SG rates,confirmed
+TBILL_1Y,1Y T-bill cut-off yield %,MAS_V1,"bondsandbills/m/listbondsandbills|bill_bond_ind:""bill"" AND auction_tenor:1|auction_date",cutoff_yield,SG rates,confirmed
+TBILL_6M_BTC,6M T-bill bid-to-cover,MAS_V1,"bondsandbills/m/listbondsandbills|bill_bond_ind:""bill"" AND auction_tenor:0.5|auction_date",bid_to_cover,SG rates,confirmed
+SGS_2Y,SGS 2y benchmark yield %,MAS_V1,TODO,yield_2yr,SG rates,endpoint not found - run probeMasPaths()
+SGS_10Y,SGS 10y benchmark yield %,MAS_V1,TODO,yield_10yr,SG rates,endpoint not found - run probeMasPaths()
+USDSGD_OANDA,USDSGD (OANDA NY close),OANDA,USD_SGD,c,FX,timelier than DEXSIUS; run probeOanda() to see other instruments
+STI,Straits Times Index (OANDA SG30 CFD),OANDA,SG30_SGD,c,SG equities,CFD tracking the STI — daily close/change; confirmed on account 7 Sep 2026
+GOLD_SGD,Gold SGD/oz,OANDA,XAU_SGD,c,Commodities,gold in SGD numeraire; confirmed on account 7 Sep 2026
+DEXUSEU,EURUSD (Fed H.10),FRED,DEXUSEU,,FX,USD per EUR
+DEXUSUK,GBPUSD (Fed H.10),FRED,DEXUSUK,,FX,USD per GBP
+DEXUSAL,AUDUSD (Fed H.10),FRED,DEXUSAL,,FX,USD per AUD
+DEXCAUS,USDCAD (Fed H.10),FRED,DEXCAUS,,FX,CAD per USD
+DEXSZUS,USDCHF (Fed H.10),FRED,DEXSZUS,,FX,CHF per USD
+DEXSDUS,USDSEK (Fed H.10),FRED,DEXSDUS,,FX,SEK per USD — DXY basket only
