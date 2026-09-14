@@ -4,7 +4,8 @@ A daily macro and cross-asset monitor built in Google Sheets and Apps Script. 57
 US rates, Fed liquidity, credit, FX, commodities and the Singapore rates complex, pulled from
 FRED, OANDA and MAS, with a 10-minute intraday quote layer over 35 instruments.
 
-**[→ View the live demo](https://docs.google.com/spreadsheets/d/1xaAF9PcQm51QEUD-6nGWGHNSrRzK3AVyA1PN_Rk4YY4/edit?usp=sharing)** (read-only snapshot, 14 Sep 2026)
+**[→ Live dashboard](https://docs.google.com/spreadsheets/d/e/2PACX-1vRylEVPn4EtaBEvDJ0yUfUljHOsDcZDUP5CmPcLytWtl5xr36oJ1VODV3stjziieIn_z7-yk8jfsSEu/pubhtml?gid=128131033&single=true)** — the Dashboard tab, republished automatically as the sheet refreshes.
+[Static snapshot](https://docs.google.com/spreadsheets/d/1xaAF9PcQm51QEUD-6nGWGHNSrRzK3AVyA1PN_Rk4YY4/edit?usp=sharing) (14 Sep 2026) if the live page is unavailable.
 
 ![Dashboard](docs/dashboard.png)
 
@@ -24,6 +25,7 @@ is being priced.
 - **What is the curve doing?** 3m through 30y, 2s10s and 3m10s, plus the 10y TIPS real yield,
   10y breakeven and 5y5y forward inflation — so a yield move separates into real rates and
   inflation compensation.
+
 ![1Y charts](docs/charts.png)
 
 - **Where is leadership?** A relative-strength screen ranks 37 sector, style, factor and regional
@@ -118,5 +120,5 @@ a full run.
 
 ## Licence
 
-MIT. The live demo is a static snapshot with all account, configuration and diagnostic tabs
-removed.
+MIT. The published page exposes the Dashboard tab only; the underlying workbook, its
+configuration and its account tabs are not reachable from it.
