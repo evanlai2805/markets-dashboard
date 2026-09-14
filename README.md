@@ -24,6 +24,8 @@ is being priced.
 - **What is the curve doing?** 3m through 30y, 2s10s and 3m10s, plus the 10y TIPS real yield,
   10y breakeven and 5y5y forward inflation — so a yield move separates into real rates and
   inflation compensation.
+![1Y charts](docs/charts.png)
+
 - **Where is leadership?** A relative-strength screen ranks 37 sector, style, factor and regional
   ETFs against SPY over 1D / 5D / 20D / 60D / YTD, with 50- and 200-day ratio trend flags.
 - **What is Singapore doing?** Compounded SORA at overnight, 1M, 3M and 6M, the MAS standing
