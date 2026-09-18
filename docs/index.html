@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cross-Asset Macro Monitor</title>
+<meta name="description" content="Daily cross-asset macro monitor: US rates and curve, global government yields, inflation and real yields, credit spreads by tier, FX, commodities, equity rotation and Singapore rates. Data from FRED, OECD, MAS and OANDA via a public Google Sheet.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ---- tokens (Beautiful-UI, light = :root, dark mirrors every name) ---- */
+:root{
+  --page:#fafafb;--canvas:#f1f2f3;--surface:#fff;--inset:#f7f8f9;--hover:#f4f5f6;--hover-2:#e7e9eb;
+  --ink:#1f2124;--ink-2:#62656b;--ink-3:#9a9da3;--line:#ecedef;--line-strong:#e0e2e5;--field:#f2f2f3;
+  --accent:#0285ff;--accent-ink:#0170dd;--accent-tint:#e9f3ff;
+  --green:#189a4d;--green-tint:#e8f5ed;--orange:#ef720c;--orange-tint:#fdf1e5;--red:#e3474c;--red-tint:#fcecec;
+  --tooltip-bg:#25272b;--tooltip-fg:#f6f7f8;--tooltip-muted:#a5a8ad;--tooltip-border:#3a3c40;
+  --shadow-btn:0 0 0 1px var(--line-strong),0 1px 2px #1018280d;
+  --shadow-card:0 0 0 1px var(--line),0 1px 2px #1018280a,0 2px 6px #10182808;
+  --shadow-overlay:0 0 0 1px var(--line),0 8px 28px #0001;
+  --radius-card:10px;--radius-control:8px;--radius-chip:6px;--radius-pill:999px;
+  --font-ui:Inter,"Inter Fallback",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  /* chart palette (dataviz reference instance) */
+  --s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s7:#4a3aa7;--grid:#e1e0d9;--axis:#c3c2b7;--wash:#2a78d61a;
+  color-scheme:light;
+}
+[data-theme="dark"]{
+  --page:#17181a;--canvas:#1c1d1f;--surface:#232427;--inset:#1f2022;--hover:#2a2b2e;--hover-2:#313236;
+  --ink:#f2f3f4;--ink-2:#a5a8ad;--ink-3:#6c6f75;--line:#2e3033;--line-strong:#3a3c40;--field:#2b2c2f;
+  --accent:#3d9aff;--accent-ink:#7ec0ff;--accent-tint:#3d9aff29;
+  --green:#3dbb72;--green-tint:#3dbb7224;--orange:#f68f3c;--orange-tint:#f68f3c24;--red:#ee5c61;--red-tint:#ee5c6124;
+  --tooltip-bg:#111214;--tooltip-fg:#f2f3f4;--tooltip-muted:#a5a8ad;--tooltip-border:#2e3033;
+  --shadow-btn:0 0 0 1px var(--line-strong),0 1px 2px #0000004d;
+  --shadow-card:0 0 0 1px var(--line),0 1px 2px #0003,0 2px 6px #0003;
+  --shadow-overlay:0 0 0 1px var(--line-strong),0 8px 28px #00000057;
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s7:#9085e9;--grid:#2c2c2a;--axis:#383835;--wash:#3987e526;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --page:#17181a;--canvas:#1c1d1f;--surface:#232427;--inset:#1f2022;--hover:#2a2b2e;--hover-2:#313236;
+  --ink:#f2f3f4;--ink-2:#a5a8ad;--ink-3:#6c6f75;--line:#2e3033;--line-strong:#3a3c40;--field:#2b2c2f;
+  --accent:#3d9aff;--accent-ink:#7ec0ff;--accent-tint:#3d9aff29;
+  --green:#3dbb72;--green-tint:#3dbb7224;--orange:#f68f3c;--orange-tint:#f68f3c24;--red:#ee5c61;--red-tint:#ee5c6124;
+  --tooltip-bg:#111214;--tooltip-fg:#f2f3f4;--tooltip-muted:#a5a8ad;--tooltip-border:#2e3033;
+  --shadow-btn:0 0 0 1px var(--line-strong),0 1px 2px #0000004d;
+  --shadow-card:0 0 0 1px var(--line),0 1px 2px #0003,0 2px 6px #0003;
+  --shadow-overlay:0 0 0 1px var(--line-strong),0 8px 28px #00000057;
+  --s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s7:#9085e9;--grid:#2c2c2a;--axis:#383835;--wash:#3987e526;
+  color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--page);color:var(--ink);font-family:var(--font-ui);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+a{color:var(--accent-ink);text-decoration:none} a:hover{text-decoration:underline}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.wrap{max-width:1200px;margin:0 auto;padding:0 16px 56px}
+.num{font-variant-numeric:tabular-nums}
+.ink2{color:var(--ink-2)} .ink3{color:var(--ink-3)}
+.up{color:var(--green)} .down{color:var(--red)} .flat{color:var(--ink-3)}
+.label{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);font-weight:500}
+.hidden{display:none!important}
+
+/* ---- header ---- */
+.hdr{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline;padding:14px 0 10px}
+.hdr h1{font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+.hdr .fresh{font-size:12px;color:var(--ink-2)}
+.hdr .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{font-size:13px;font-weight:500;padding:6px 12px;border-radius:var(--radius-control);background:var(--surface);color:var(--ink);box-shadow:var(--shadow-btn)}
+.btn:hover{background:var(--hover)}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:1px 8px;border-radius:var(--radius-chip);font-size:11px;font-weight:500;white-space:nowrap}
+.chip i{width:6px;height:6px;border-radius:var(--radius-pill);background:currentColor;display:inline-block}
+.chip--green{background:var(--green-tint);color:var(--green)} .chip--orange{background:var(--orange-tint);color:var(--orange)}
+.chip--red{background:var(--red-tint);color:var(--red)} .chip--blue{background:var(--accent-tint);color:var(--accent-ink)}
+.chip--grey{background:var(--inset);color:var(--ink-2)}
+.banner{margin:8px 0;padding:10px 14px;border-radius:var(--radius-control);background:var(--orange-tint);color:var(--orange);font-size:13px}
+.banner.err{background:var(--red-tint);color:var(--red)}
+
+/* ---- tabs ---- */
+.tabs{position:sticky;top:0;z-index:5;background:var(--page);padding:6px 0 10px}
+.seg{display:inline-flex;gap:2px;padding:4px;background:var(--inset);border-radius:var(--radius-pill);max-width:100%;overflow-x:auto;scrollbar-width:none}
+.seg button{flex:0 0 auto;padding:6px 14px;border-radius:var(--radius-pill);font-size:13px;font-weight:500;color:var(--ink-3);white-space:nowrap}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-btn)}
+.view{display:none} .view.on{display:block}
+
+/* ---- layout & cards ---- */
+.grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+.card{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-card);padding:14px 16px;min-width:0}
+.card h2{font-size:13px;font-weight:600;margin:0 0 8px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px}
+.card h2 small{font-weight:400;color:var(--ink-3);font-size:11px}
+.c12{grid-column:span 12}.c8{grid-column:span 8}.c7{grid-column:span 7}.c6{grid-column:span 6}.c5{grid-column:span 5}.c4{grid-column:span 4}.c3{grid-column:span 3}
+@media (max-width:860px){.c8,.c7,.c6,.c5,.c4,.c3{grid-column:span 12}}
+.inset{background:var(--inset);border-radius:var(--radius-control);padding:10px 12px}
+.section{margin:18px 0 8px}
+.section .label{font-size:12px}
+.scroll{overflow-x:auto;scrollbar-width:thin}
+
+/* ---- tape / tiles ---- */
+.tape{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));margin:8px 0 4px}
+.tile{background:var(--surface);border-radius:var(--radius-control);box-shadow:var(--shadow-card);padding:8px 10px;min-width:0;cursor:pointer}
+.tile:hover{background:var(--hover)}
+.tile .k{font-size:11px;color:var(--ink-3);display:flex;justify-content:space-between;gap:6px}
+.tile .v{font-size:18px;font-weight:600;letter-spacing:-.01em;margin-top:1px}
+.tile .d{font-size:11px;display:flex;gap:8px;flex-wrap:wrap}
+.tile .sub{font-size:11px;color:var(--ink-2);margin-top:2px}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font-weight:500;color:var(--ink-3);text-align:right;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+td{text-align:right;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap;color:var(--ink-2)}
+th:first-child,td:first-child{text-align:left}
+td:first-child{color:var(--ink)}
+td.num{font-variant-numeric:tabular-nums}
+tr.row{cursor:pointer} tr.row:hover td{background:var(--hover)}
+tr.sel td{background:var(--accent-tint)}
+tr.grp td{background:var(--inset);color:var(--ink-2);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.03em;padding:4px 8px}
+td.spark svg,td.range svg{display:block}
+td.stale{color:var(--ink-3)}
+.mini{font-size:11px;color:var(--ink-3)}
+
+/* ---- charts ---- */
+svg.chart{width:100%;height:auto;display:block;font-family:var(--font-ui)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2);margin:2px 0 6px;flex-wrap:wrap}
+.legend i{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
+.tip{position:fixed;z-index:20;pointer-events:none;background:var(--tooltip-bg);color:var(--tooltip-fg);border:1px solid var(--tooltip-border);border-radius:var(--radius-control);padding:6px 9px;font-size:12px;box-shadow:var(--shadow-overlay);max-width:260px}
+.tip .m{color:var(--tooltip-muted)}
+.small-multiples{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.small-multiples .card{padding:10px 12px}
+
+/* ---- notes / read ---- */
+.read{margin-top:10px;padding:10px 12px;background:var(--inset);border-radius:var(--radius-control);font-size:13px;color:var(--ink)}
+.read b{color:var(--accent-ink);font-weight:600}
+.read .date{color:var(--ink-3);font-size:11px;margin-left:6px}
+.state{display:grid;grid-template-columns:110px 1fr;gap:4px 12px;font-size:13px}
+.state .k{color:var(--ink-3);font-size:12px;text-transform:uppercase;letter-spacing:.03em;padding-top:1px}
+.note{font-size:12px;color:var(--ink-3);margin-top:6px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:13px}
+.kv dt{color:var(--ink-3)} .kv dd{margin:0;color:var(--ink)}
+
+/* ---- modal ---- */
+.modal{position:fixed;inset:0;z-index:30;background:#0006;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+.modal .box{background:var(--surface);border-radius:var(--radius-card);box-shadow:var(--shadow-overlay);padding:16px 18px;max-width:640px;width:100%}
+.modal h3{margin:0 0 6px;font-size:15px}
+.modal .x{float:right}
+
+/* ---- footer ---- */
+.foot{margin-top:24px;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3)}
+@media (max-width:480px){ .tile .v{font-size:16px} .state{grid-template-columns:1fr} th,td{padding:4px 6px} }
+@media (prefers-reduced-motion:no-preference){ .view.on{animation:fade .16s ease-out} }
+@keyframes fade{from{opacity:.5}to{opacity:1}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Cross-Asset Macro Monitor</h1>
+    <span class="fresh" id="fresh">loading…</span>
+    <div class="right">
+      <a class="btn" id="sheetLink" href="#" target="_blank" rel="noopener">Data sheet</a>
+      <button class="btn" id="themeBtn" type="button" aria-label="Toggle light or dark theme">Theme</button>
+    </div>
+  </div>
+  <div id="banner"></div>
+  <div class="tabs"><div class="seg" role="tablist" id="tabs"></div></div>
+  <main id="main"></main>
+  <div class="foot" id="foot"></div>
+</div>
+<div class="tip hidden" id="tip"></div>
+
+<script>
+(function(){
+'use strict';
+/* =====================================================================================
+   CONFIG — the only place presentation lives. The sheet holds numbers; this holds layout.
+   ===================================================================================== */
+const SHEET_ID = '1xaAF9PcQm51QEUD-6nGWGHNSrRzK3AVyA1PN_Rk4YY4';
+const SCHEMA_VERSION = '5';
+const LIVE_REFRESH_MS = 10*60*1000;
+const P = new URLSearchParams(location.search);
+const FIXTURES = P.get('fixtures');                 // ?fixtures=../fixtures  → offline dev against CSV fixtures
+const TZ_LABEL = 'SGT';
+
+// curve tenors: [label, years, nominal id, real id | null]
+const TENORS = [['1M',1/12,'DGS1MO'],['3M',.25,'DGS3MO'],['6M',.5,'DGS6MO'],['1Y',1,'DGS1'],['2Y',2,'DGS2'],['3Y',3,'DGS3'],
+                ['5Y',5,'DGS5','DFII5'],['7Y',7,'DGS7','DFII7'],['10Y',10,'DGS10','DFII10'],['20Y',20,'DGS20','DFII20'],['30Y',30,'DGS30','DFII30']];
+const SPREADS = [['2s10s','US_10Y_2Y'],['3m10y','US_10Y_3M'],['5s30s','US_5Y_30Y'],['10s30s','US_10Y_30Y'],['2s30s','US_2Y_30Y'],['20s30s','US_20Y_30Y']];
+const OAS = [['IG (Corp Master)','BAMLC0A0CM'],['AAA','BAMLC0A1CAAA'],['AA','BAMLC0A2CAA'],['A','BAMLC0A3CA'],['BBB','BAMLC0A4CBBB'],['IG 1–3y','BAMLC1A0C13Y'],
+             ['HY (Master II)','BAMLH0A0HYM2'],['BB','BAMLH0A1HYBB'],['B','BAMLH0A2HYB'],['CCC & lower','BAMLH0A3HYC'],['Euro HY','BAMLHE00EHYIOAS'],['EM corporate','BAMLEMCBPIOAS']];
+const GLOBAL = [['United States','US','G10Y_US',null],['Germany','DE','G10Y_DE','G10Y_DE_US'],['United Kingdom','GB','G10Y_GB','G10Y_GB_US'],['Japan','JP','G10Y_JP','G10Y_JP_US'],
+                ['Australia','AU','G10Y_AU','G10Y_AU_US'],['Canada','CA','G10Y_CA','G10Y_CA_US'],['Italy','IT','G10Y_IT','G10Y_IT_US'],['France','FR','G10Y_FR','G10Y_FR_US'],
+                ['Switzerland','CH','G10Y_CH','G10Y_CH_US'],['South Africa','ZA','G10Y_ZA','G10Y_ZA_US']];
+// stat-table item: [id, label, decimals, unit]  unit: '%'|'bp'|'$'|''|'k'|'idx'
+const PANELS = {
+  rates:      [['DGS1MO','UST 1m',2,'%'],['DGS3MO','UST 3m',2,'%'],['DGS6MO','UST 6m',2,'%'],['DGS1','UST 1y',2,'%'],['DGS2','UST 2y',2,'%'],['DGS3','UST 3y',2,'%'],['DGS5','UST 5y',2,'%'],['DGS7','UST 7y',2,'%'],['DGS10','UST 10y',2,'%'],['DGS20','UST 20y',2,'%'],['DGS30','UST 30y',2,'%']],
+  spreads:    [['US_10Y_2Y','2s10s',2,'sp'],['US_10Y_3M','3m10y',2,'sp'],['US_5Y_30Y','5s30s',2,'sp'],['US_10Y_30Y','10s30s',2,'sp'],['US_2Y_30Y','2s30s',2,'sp'],['US_20Y_30Y','20s30s',2,'sp']],
+  policy:     [['DFF','Fed funds effective',2,'%'],['DFEDTARU','Target range upper',2,'%'],['DFEDTARL','Target range lower',2,'%'],['SOFR','SOFR',2,'%'],['POLICY_PROXY_6M','Policy proxy: 6m bill − funds ◌',2,'sp'],['POLICY_PROXY_1Y','Policy proxy: 1y − funds ◌',2,'sp']],
+  liquidity:  [['WALCL','Fed balance sheet $bn',0,'$'],['RRPONTSYD','ON RRP $bn',0,'$'],['WTREGEN','TGA $bn',0,'$'],['Net_Liquidity','Net liquidity $bn',0,'$'],['M2SL','M2 $bn',0,'$']],
+  real:       [['DFII5','5y real (TIPS)',2,'%'],['DFII7','7y real (TIPS)',2,'%'],['DFII10','10y real (TIPS)',2,'%'],['DFII20','20y real (TIPS)',2,'%'],['DFII30','30y real (TIPS)',2,'%']],
+  be:         [['T5YIE','5y breakeven (print)',2,'%'],['T10YIE','10y breakeven (print)',2,'%'],['BE_5Y','5y BE = nominal − real',2,'%'],['BE_10Y_CALC','10y BE = nominal − real',2,'%'],['BE_30Y','30y BE = nominal − real',2,'%'],['T5YIFR','5y5y forward inflation',2,'%']],
+  inflprints: [['CPIAUCSL','CPI YoY %',1,'pp'],['CPILFESL','Core CPI YoY %',1,'pp'],['PCEPILFE','Core PCE YoY %',1,'pp']],
+  creditrisk: [['HY_IG_OAS','HY − IG',2,'sp'],['BAMLH0A0HYM2EY','HY effective yield',2,'%'],['BAMLC0A0CMEY','IG effective yield',2,'%'],['VIXCLS','VIX',1,''],['NFCI','Chicago Fed NFCI',2,''],['ANFCI','Adjusted NFCI',2,'']],
+  fx:         [['DXY','US Dollar Index',2,'idx'],['DTWEXBGS','Broad USD (Fed)',2,'idx'],['DEXUSEU','EURUSD',4,''],['DEXUSUK','GBPUSD',4,''],['DEXJPUS','USDJPY',2,''],['DEXSZUS','USDCHF',4,''],['DEXCAUS','USDCAD',4,''],['DEXUSAL','AUDUSD',4,''],['DEXSDUS','USDSEK',4,'']],
+  fxasia:     [['DEXSIUS','USDSGD (Fed H.10)',4,''],['USDSGD_OANDA','USDSGD (OANDA close)',4,''],['DEXCHUS','USDCNY',3,'']],
+  cmdty:      [['GOLD','Gold $/oz',0,'$'],['COPPER','Copper $/lb',2,'$'],['CopperGold','Copper/Gold ×1000',3,''],['DCOILWTICO','WTI $/bbl',2,'$'],['DCOILBRENTEU','Brent $/bbl',2,'$']],
+  crypto:     [['BTCUSD','Bitcoin',0,'$'],['ETHUSD','Ether',0,'$'],['ETH_BTC','ETH/BTC',4,'']],
+  sgrates:    [['SORA_ON','SORA overnight',2,'%'],['SORA_1M','1M compounded SORA',2,'%'],['SORA_3M','3M compounded SORA',2,'%'],['SORA_6M','6M compounded SORA',2,'%'],['SG_SF_DEPO','MAS SF deposit (floor)',2,'%'],['SG_SF_BORR','MAS SF borrow (ceiling)',2,'%'],['SORA_VOL','SORA volume',0,'']],
+  sgbills:    [['TBILL_6M','6M T-bill cut-off',2,'%'],['TBILL_1Y','1Y T-bill cut-off',2,'%'],['TBILL_6M_BTC','6M bid-to-cover',2,''],['SGS_2Y','SGS 2y',2,'%'],['SGS_10Y','SGS 10y',2,'%']],
+  macro:      [['ICSA','Initial claims (k)',0,'k'],['PAYEMS','Nonfarm payrolls (k)',0,'k'],['UNRATE','Unemployment %',1,'pp'],['CPIAUCSL','CPI YoY %',1,'pp'],['CPILFESL','Core CPI YoY %',1,'pp'],['PCEPILFE','Core PCE YoY %',1,'pp']],
+};
+const TABS = [['board','Board'],['rates','Rates'],['credit','Credit'],['fx','FX'],['cmdty','Commodities'],['equities','Equities'],['macro','Macro'],['method','Methodology']];
+
+/* ===================================================================================== data layer */
+const D = { stats:{}, order:[], series:null, live:{}, liveMeta:{}, ratios:[], ratiosHist:null, notes:{}, meta:{}, sm:{} };
+function parseCsv(text){
+  const rows=[]; let row=[], f='', q=false;
+  for(let i=0;i<text.length;i++){ const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else if(c==='"') q=true; else if(c===','){ row.push(f); f=''; }
+    else if(c==='\n'){ row.push(f); rows.push(row); row=[]; f=''; } else if(c!=='\r') f+=c; }
+  if(f!==''||row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+async function tab(name, tq){
+  let url;
+  if(FIXTURES) url = FIXTURES.replace(/\/$/,'')+'/'+name+'.csv';
+  else url = 'https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?tqx=out:csv&headers=1&sheet='+encodeURIComponent(name)+(tq?'&tq='+encodeURIComponent(tq):'')+'&_='+Date.now();
+  const r = await fetch(url); if(!r.ok) throw new Error(name+': HTTP '+r.status);
+  const t = await r.text(); if(t.trimStart().startsWith('<')) throw new Error(name+': not a CSV (tab missing or sheet not public)');
+  return parseCsv(t);
+}
+const num = v => { if(v==null||v==='') return null; const x=parseFloat(String(v).replace(/[%,$]/g,'')); return isFinite(x)?x:null; };
+function loadStats(rows){
+  const h=rows[0]; const ix=Object.fromEntries(h.map((k,i)=>[k,i])); const sI=ix['s1'];
+  const extI = { v1m:ix['v1m'], v1y:ix['v1y'], pct3y:ix['pct3y'], cadence:ix['cadence'], status:ix['status'] };
+  rows.slice(1).forEach(r=>{ const id=r[0]; if(!id) return;
+    const spark=[]; for(let k=0;k<60;k++){ const v=num(r[sI+k]); if(v!=null) spark.push(v); }
+    D.stats[id]={ id, label:r[1], panel:r[2], asof:r[3], last:num(r[4]), prev:num(r[5]), d1:num(r[6]), d1w:num(r[7]), d1m:num(r[8]), ytd:num(r[9]),
+      pct:num(r[10]), hi:num(r[11]), lo:num(r[12]), pos:num(r[13]), n:num(r[14]), mode:r[15], spark,
+      v1m: extI.v1m!=null?num(r[extI.v1m]):null, v1y: extI.v1y!=null?num(r[extI.v1y]):null, pct3y: extI.pct3y!=null?num(r[extI.pct3y]):null,
+      cadence: extI.cadence!=null?num(r[extI.cadence]):null, status: extI.status!=null?(r[extI.status]||''):'' };
+    D.order.push(id); });
+  D.hasExt = extI.status!=null;
+}
+function loadSeries(rows){ const h=rows[0]; const cols={}; h.forEach((k,i)=>{ if(i) cols[k]=[]; });
+  const dates=[]; rows.slice(1).forEach(r=>{ if(!r[0]) return; dates.push(r[0]); h.forEach((k,i)=>{ if(i) cols[k].push(num(r[i])); }); });
+  D.series={dates, cols}; }
+function loadLive(rows){ const h=rows[0]; const ix=Object.fromEntries(h.map((k,i)=>[k,i]));
+  rows.slice(1).forEach(r=>{ const inst=r[ix.instrument]; const ref=r[ix.refreshed_at]; if(ref) D.liveMeta.refreshed=ref; if(!inst) return;
+    // gviz renders a percent-formatted cell as "-0.46%"; an unformatted one as a fraction "-0.0046". Normalise both to percent units.
+    const pc = v => { const x=num(v); if(x==null) return null; return String(v).indexOf('%')>=0 ? x : x*100; };
+    const o={ group:r[ix.group], label:r[ix.label], mid:num(r[ix.mid]), chg:pc(r[ix.chg_vs_prev]), prev:num(r[ix.prev_close]), prevDate:r[ix.prev_close_date], open:num(r[ix.day_open]),
+      fromOpen:pc(r[ix.from_open]), status:r[ix.status], time:r[ix.quote_time_sgt], inst, sid:r[ix.series_id], short:r[ix.short], dec:num(r[ix.dec]) };
+    D.live[o.short]=o; if(o.sid) D.live['sid:'+o.sid]=o; }); }
+function loadRatios(rows){ const h=rows[0]; const ix=Object.fromEntries(h.map((k,i)=>[k,i]));
+  D.ratios=rows.slice(1).filter(r=>r[ix.ticker]).map(r=>({ group:r[ix.group], t:r[ix.ticker], date:r[ix.date], ratio:num(r[ix.ratio]), r1:num(r[ix.rel_1d]), r5:num(r[ix.rel_5d]), r20:num(r[ix.rel_20d]), r60:num(r[ix.rel_60d]), ytd:num(r[ix.rel_ytd]),
+    a50:String(r[ix.above50]).toUpperCase()==='TRUE', a200:String(r[ix.above200]).toUpperCase()==='TRUE', pct:num(r[ix.pct_rank_1y]), status:r[ix.status]||'' }));
+  rows.slice(1).forEach(r=>{ if(r[ix.updated_at]) D.ratiosUpdated=r[ix.updated_at]; }); }
+function loadNotes(rows){ rows.slice(1).forEach(r=>{ if(r[0]&&String(r[1]||'').trim()) D.notes[r[0]]={text:r[1],date:r[2]||''}; }); }
+function loadMeta(rows){ rows.slice(1).forEach(r=>{ if(r[0]) D.meta[r[0]]=r[1]; }); }
+function loadSeriesMeta(rows){ rows.slice(1).forEach(r=>{ if(r[0]) D.sm[r[0]]={label:r[1],source:r[2],sourceId:r[3],field:r[4],group:r[5],notes:r[6]}; }); }
+
+/* ===================================================================================== formatting */
+const S = id => D.stats[id] || null;
+const fmt = (v,dec) => v==null||!isFinite(v) ? '—' : (Math.abs(v)>=10000 ? v.toLocaleString('en-US',{maximumFractionDigits:0}) : v.toLocaleString('en-US',{minimumFractionDigits:dec,maximumFractionDigits:dec}));
+const sign = v => v>0?'+':'';
+const cls = v => v==null||!isFinite(v)?'flat':(v>0?'up':(v<0?'down':'flat'));
+// change formatting by unit: bp for yields/spreads (stats d* are already ×100 for mode 'bp'), % for prices (mode 'pct' stores a fraction), abs otherwise
+function fmtChg(v, item){ if(v==null||!isFinite(v)) return '—'; const s=S(item[0]); const mode=s?s.mode:'abs';
+  if(mode==='bp') return sign(v)+v.toFixed(0)+'bp';
+  if(mode==='pct') return sign(v*100)+(v*100).toFixed(Math.abs(v*100)<1?2:1)+'%';
+  const dec=Math.min(item[2],2); const t=v.toFixed(dec); if(parseFloat(t)===0) return t.replace('-','')+(item[3]==='pp'?'pp':''); return sign(v)+t+(item[3]==='pp'?'pp':''); }
+const bp = v => v==null?'—':sign(v)+Math.round(v)+'bp';
+const bpAbs = v => v==null?'—':Math.round(v)+'bp';
+const pctStr = (v,d=2) => v==null?'—':sign(v)+v.toFixed(d)+'%';
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function statusChip(st, s){ if(!st) return '';
+  const m={FRESH:['green','Fresh'],LATE:['red','Late'],BEHIND:['orange','Behind'],WEEKLY:['grey','Weekly'],MONTHLY:['grey','Monthly'],MISSING:['red','Missing']}[st]||['grey',st];
+  const d = s&&s.asof ? ' · '+shortDate(s.asof) : '';
+  return '<span class="chip chip--'+m[0]+'"><i></i>'+m[1]+d+'</span>'; }
+function shortDate(ymd){ if(!ymd) return ''; const p=ymd.split('-'); if(p.length<3) return ymd; return +p[2]+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+p[1]-1]+(p[0]!==String(new Date().getFullYear())?' '+p[0].slice(2):''); }
+function chgBp(s){ return s&&s.last!=null&&s.v1m!=null ? (s.last-s.v1m)*100 : null; }
+function chgBp1y(s){ return s&&s.last!=null&&s.v1y!=null ? (s.last-s.v1y)*100 : null; }
+
+/* ===================================================================================== svg primitives */
+function sparkSvg(vals, w=90, h=22, color='var(--s1)'){ if(!vals||vals.length<2) return '';
+  const mn=Math.min(...vals), mx=Math.max(...vals); const X=i=>1+(w-2)*i/(vals.length-1), Y=v=>mx===mn?h/2:1+(h-2)*(1-(v-mn)/(mx-mn));
+  const d=vals.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" aria-hidden="true"><path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="'+X(vals.length-1).toFixed(1)+'" cy="'+Y(vals[vals.length-1]).toFixed(1)+'" r="2.2" fill="'+color+'" stroke="var(--surface)" stroke-width="1.5"/></svg>'; }
+function rangeSvg(pos, w=70, h=8){ if(pos==null) return ''; const x=1+(w-4)*Math.max(0,Math.min(1,pos));
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" aria-hidden="true"><rect x="1" y="3" width="'+(w-2)+'" height="2" rx="1" fill="var(--grid)"/><rect x="'+x.toFixed(1)+'" y="0" width="3" height="8" rx="1.5" fill="var(--s1)"/></svg>'; }
+const tipEl=document.getElementById('tip');
+function showTip(html,x,y){ tipEl.innerHTML=html; tipEl.classList.remove('hidden'); const r=tipEl.getBoundingClientRect(); const L=Math.min(x+14, innerWidth-r.width-8), T=Math.min(y+14, innerHeight-r.height-8); tipEl.style.left=L+'px'; tipEl.style.top=T+'px'; }
+function hideTip(){ tipEl.classList.add('hidden'); }
+
+// Single-axis line chart (never dual). cols: [{key, label, color}], from D.series. Hover crosshair + tooltip.
+function lineChart(el, cols, opts={}){
+  if(!D.series){ el.innerHTML='<div class="note">no series data</div>'; return; }
+  const dates=D.series.dates; const data=cols.map(c=>D.series.cols[c.key]||[]);
+  const has=data.some(a=>a.some(v=>v!=null)); if(!has){ el.innerHTML='<div class="note">'+esc(opts.title||'')+' — series not yet in the sheet (deploy v5 and backfill)</div>'; return; }
+  const W=560,H=opts.h||200,L=44,R=12,T=14,B=26; const n=dates.length;
+  const flat=data.flat().filter(v=>v!=null); let mn=Math.min(...flat), mx=Math.max(...flat); if(mn===mx){mn-=1;mx+=1;} const pad=(mx-mn)*0.08; mn-=pad; mx+=pad;
+  const X=i=>L+(W-L-R)*i/Math.max(1,n-1), Y=v=>T+(H-T-B)*(1-(v-mn)/(mx-mn));
+  const ticks=niceTicks(mn,mx,4); const step=ticks.length>1?ticks[1]-ticks[0]:null; let g='';
+  ticks.forEach(v=>{ g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v).toFixed(1)+'" y2="'+Y(v).toFixed(1)+'" stroke="var(--grid)" stroke-width="1"/><text x="'+(L-6)+'" y="'+(Y(v)+4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--ink-3)">'+fmtTick(v,step)+'</text>'; });
+  const mIdx=monthStarts(dates); mIdx.forEach(i=>{ g+='<text x="'+X(i).toFixed(1)+'" y="'+(H-B+16)+'" font-size="10" text-anchor="middle" fill="var(--ink-3)">'+dates[i].slice(5,7).replace(/^0/,'')+'/'+dates[i].slice(2,4)+'</text>'; });
+  if(opts.zero && mn<0 && mx>0) g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(0).toFixed(1)+'" y2="'+Y(0).toFixed(1)+'" stroke="var(--axis)" stroke-width="1"/>';
+  cols.forEach((c,ci)=>{ const a=data[ci]; let d='', pen=false;
+    a.forEach((v,i)=>{ if(v==null){ pen=false; return; } d+=(pen?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' '; pen=true; });
+    if(cols.length===1 && opts.area!==false){ let lastI=a.length-1; while(lastI>0&&a[lastI]==null) lastI--; let firstI=0; while(firstI<a.length&&a[firstI]==null) firstI++;
+      if(d) g+='<path d="'+d+'L'+X(lastI).toFixed(1)+' '+Y(mn).toFixed(1)+' L'+X(firstI).toFixed(1)+' '+Y(mn).toFixed(1)+' Z" fill="var(--wash)"/>'; }
+    g+='<path d="'+d+'" fill="none" stroke="'+c.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    let li=a.length-1; while(li>0&&a[li]==null) li--; if(a[li]!=null) g+='<circle cx="'+X(li).toFixed(1)+'" cy="'+Y(a[li]).toFixed(1)+'" r="4" fill="'+c.color+'" stroke="var(--surface)" stroke-width="2"/>'; });
+  g+='<line id="xh" x1="0" x2="0" y1="'+T+'" y2="'+(H-B)+'" stroke="var(--axis)" stroke-width="1" style="display:none"/>';
+  const legend = cols.length>1 ? '<div class="legend">'+cols.map(c=>'<span><i style="background:'+c.color+'"></i>'+esc(c.label)+'</span>').join('')+'</div>' : '';
+  el.innerHTML=legend+'<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opts.title||cols.map(c=>c.label).join(', '))+'">'+g+'<rect x="'+L+'" y="'+T+'" width="'+(W-L-R)+'" height="'+(H-T-B)+'" fill="transparent" class="hit"/></svg>';
+  const svg=el.querySelector('svg'), hit=el.querySelector('.hit'), xh=el.querySelector('#xh');
+  const move=e=>{ const pt=svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const p=pt.matrixTransform(svg.getScreenCTM().inverse());
+    const i=Math.max(0,Math.min(n-1,Math.round((p.x-L)/(W-L-R)*(n-1)))); xh.setAttribute('x1',X(i)); xh.setAttribute('x2',X(i)); xh.style.display='';
+    showTip('<div class="m">'+dates[i]+'</div>'+cols.map((c,ci)=>'<div><span style="display:inline-block;width:10px;height:3px;background:'+c.color+';vertical-align:middle;margin-right:6px"></span>'+esc(c.label)+' <b>'+(data[ci][i]==null?'—':fmt(data[ci][i],opts.dec==null?2:opts.dec))+'</b></div>').join(''), e.clientX, e.clientY); };
+  hit.addEventListener('mousemove',move); hit.addEventListener('mouseleave',()=>{ xh.style.display='none'; hideTip(); });
+  hit.addEventListener('touchstart',e=>move(e.touches[0]),{passive:true}); hit.addEventListener('touchmove',e=>move(e.touches[0]),{passive:true}); hit.addEventListener('touchend',()=>{xh.style.display='none';hideTip();});
+}
+function niceTicks(mn,mx,k){ const span=mx-mn; const raw=span/k; const p=Math.pow(10,Math.floor(Math.log10(raw))); const f=raw/p; const step=(f<1.5?1:f<3?2:f<7?5:10)*p; const out=[]; for(let v=Math.ceil(mn/step)*step; v<=mx; v+=step) out.push(+v.toFixed(10)); return out; }
+function fmtTick(v, step){ if(Math.abs(v)>=1000) return Math.round(v).toLocaleString('en-US'); const d = step ? Math.max(0, Math.min(4, -Math.floor(Math.log10(step)))) : (Number.isInteger(v)?0:(Math.abs(v)<1?2:1)); return v.toFixed(d); }
+function monthStarts(dates){ const out=[]; let last=''; dates.forEach((d,i)=>{ const m=d.slice(0,7); if(m!==last){ last=m; if(out.length===0||i-out[out.length-1]>15) out.push(i); } }); return out.filter((_,k)=>k%2===0); }
+
+/* ===================================================================================== components */
+function tile(id, short, opts={}){ const s=S(id); const item=[id,short,opts.dec==null?2:opts.dec,opts.unit||'%'];
+  const d1=s?s.d1:null, d1m=chgBp(s);
+  const dText = s ? (s.mode==='bp' ? bp(d1)+' 1d' : fmtChg(d1,item)+' 1d') : '';
+  const mText = s&&s.mode==='bp'&&d1m!=null ? '<span class="'+cls(d1m)+'">'+bp(d1m)+' 1m</span>' : (s&&s.d1m!=null&&s.mode!=='bp' ? '<span class="'+cls(s.d1m)+'">'+fmtChg(s.d1m,item)+' 1m</span>':'');
+  return '<div class="tile" data-drill="'+id+'"><div class="k"><span>'+esc(short)+'</span>'+(s&&s.status&&s.status!=='FRESH'?'<span class="chip chip--'+(s.status==='LATE'?'red':'grey')+'" style="padding:0 5px">'+s.status.toLowerCase()+'</span>':'')+'</div>'+
+    '<div class="v num">'+(s?fmt(s.last,item[2])+(opts.unit==='%'?'%':''):'—')+'</div><div class="d"><span class="'+cls(d1)+'">'+dText+'</span>'+mText+'</div>'+(opts.sub?'<div class="sub">'+opts.sub+'</div>':'')+'</div>'; }
+function liveTile(short, label){ const q=D.live[short]; if(!q) return '';
+  return '<div class="tile"><div class="k"><span>'+esc(label||q.label)+'</span><span class="mini">live</span></div><div class="v num">'+fmt(q.mid, q.dec==null?2:Math.min(q.dec,4))+'</div><div class="d"><span class="'+cls(q.chg)+'">'+pctStr(q.chg,2)+' vs close</span>'+(q.status!=='tradeable'?'<span class="ink3">closed</span>':'')+'</div></div>'; }
+function statTable(items, opts={}){
+  let h='<div class="scroll"><table><thead><tr><th>Metric</th><th>Last</th><th>Δ1d</th><th>1w</th><th>1m</th><th>1y</th><th>1y %ile</th><th>52w range</th><th>60 obs</th>'+(opts.live?'<th>Live</th><th>vs close</th>':'')+'<th>Status</th></tr></thead><tbody>';
+  items.forEach(it=>{ const [id,label,dec,unit]=it; const s=S(id); if(!s){ h+='<tr class="row" data-drill="'+id+'"><td>'+esc(label)+'</td><td colspan="'+(opts.live?10:8)+'" class="mini">not in sheet yet</td><td>'+statusChip('MISSING')+'</td></tr>'; return; }
+    const y = s.mode==='bp' ? chgBp1y(s) : (s.v1y!=null&&s.last!=null ? (s.mode==='pct'?(s.last/s.v1y-1):(s.last-s.v1y)) : null);
+    const lv = opts.live ? D.live['sid:'+id] : null;
+    h+='<tr class="row'+(s.status==='LATE'||s.status==='BEHIND'?' stale':'')+'" data-drill="'+id+'"><td>'+esc(label)+'</td><td class="num" style="color:var(--ink);font-weight:500">'+fmt(s.last,dec)+'</td>'+
+      '<td class="num '+cls(s.d1)+'">'+fmtChg(s.d1,it)+'</td><td class="num '+cls(s.d1w)+'">'+fmtChg(s.d1w,it)+'</td><td class="num '+cls(s.d1m)+'">'+fmtChg(s.d1m,it)+'</td><td class="num '+cls(y)+'">'+(y==null?'—':fmtChg(y,it))+'</td>'+
+      '<td class="num">'+(s.pct==null?'—':Math.round(s.pct))+'</td><td class="range">'+rangeSvg(s.pos)+'</td><td class="spark">'+sparkSvg(s.spark)+'</td>'+
+      (opts.live?('<td class="num">'+(lv?fmt(lv.mid,Math.min(lv.dec==null?dec:lv.dec,4)):'')+'</td><td class="num '+(lv?cls(lv.chg):'')+'">'+(lv?pctStr(lv.chg,2):'')+'</td>'):'')+
+      '<td>'+statusChip(s.status||'', s)+'</td></tr>'; });
+  return h+'</tbody></table></div>'; }
+function notes(key, title='Read'){ const n=D.notes[key]; if(!n) return ''; return '<div class="read"><b>'+esc(title)+'.</b> '+esc(n.text)+(n.date?'<span class="date">'+esc(n.date)+'</span>':'')+'</div>'; }
+
+// UST par curve: today / 1m / 1y (levels from DashStats last, v1m, v1y), √-time axis, click a tenor to drill
+let selTenor='10Y';
+function curveChart(el){
+  const pts=TENORS.map(t=>{ const s=S(t[2]); return {t:t[0], y:t[1], id:t[2], now:s?s.last:null, m:s?s.v1m:null, yr:s?s.v1y:null}; }).filter(p=>p.now!=null);
+  if(!pts.length){ el.innerHTML='<div class="note">curve tenors not yet in the sheet</div>'; return; }
+  const W=560,H=250,L=40,R=12,T=16,B=30; const xmax=Math.sqrt(30); const X=y=>L+(W-L-R)*Math.sqrt(y)/xmax;
+  const all=pts.flatMap(p=>[p.now,p.m,p.yr]).filter(v=>v!=null); const mn=Math.floor(Math.min(...all)*2)/2-0.25, mx=Math.ceil(Math.max(...all)*2)/2+0.1;
+  const Y=v=>T+(H-T-B)*(1-(v-mn)/(mx-mn)); let g='';
+  for(let v=Math.ceil(mn*2)/2; v<=mx; v+=0.5) g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v).toFixed(1)+'" y2="'+Y(v).toFixed(1)+'" stroke="var(--grid)"/><text x="'+(L-6)+'" y="'+(Y(v)+4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--ink-3)">'+v.toFixed(1)+'</text>';
+  pts.forEach(p=>{ g+='<text x="'+X(p.y).toFixed(1)+'" y="'+(H-B+16)+'" font-size="10" text-anchor="middle" fill="var(--ink-3)">'+p.t+'</text>'; });
+  const path=(k,color,w,dash)=>{ const q=pts.filter(p=>p[k]!=null); if(q.length<2) return ''; return '<path d="'+q.map((p,i)=>(i?'L':'M')+X(p.y).toFixed(1)+' '+Y(p[k]).toFixed(1)).join(' ')+'" fill="none" stroke="'+color+'" stroke-width="'+w+'"'+(dash?' stroke-dasharray="4 4"':'')+' stroke-linejoin="round"/>'; };
+  g+=path('yr','var(--s7)',1.5,true)+path('m','var(--ink-3)',1.5,true)+path('now','var(--s1)',2,false);
+  const ff=S('DFF'); if(ff&&ff.last!=null&&ff.last>mn&&ff.last<mx) g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(ff.last).toFixed(1)+'" y2="'+Y(ff.last).toFixed(1)+'" stroke="var(--s2)" stroke-width="1" stroke-dasharray="2 3"/><text x="'+(W-R)+'" y="'+(Y(ff.last)-4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--s2)">Fed funds '+ff.last.toFixed(2)+'</text>';
+  pts.forEach(p=>{ const sel=p.t===selTenor; g+='<circle data-t="'+p.t+'" cx="'+X(p.y).toFixed(1)+'" cy="'+Y(p.now).toFixed(1)+'" r="'+(sel?6:4.5)+'" fill="'+(sel?'var(--s2)':'var(--s1)')+'" stroke="var(--surface)" stroke-width="2" style="cursor:pointer"><title>'+p.t+' '+p.now.toFixed(2)+'%</title></circle>';
+    if(sel) g+='<text x="'+X(p.y).toFixed(1)+'" y="'+(Y(p.now)-11).toFixed(1)+'" font-size="11" font-weight="600" text-anchor="middle" fill="var(--ink)">'+p.now.toFixed(2)+'</text>'; });
+  el.innerHTML='<div class="legend"><span><i style="background:var(--s1)"></i>Today</span><span><i style="background:var(--ink-3)"></i>1m ago</span><span><i style="background:var(--s7)"></i>1y ago</span><span><i style="background:var(--s2)"></i>Fed funds</span></div><svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="UST par curve today, one month and one year ago">'+g+'</svg>';
+  el.querySelectorAll('circle[data-t]').forEach(c=>c.addEventListener('click',()=>{ selTenor=c.dataset.t; renderRates(); }));
+}
+function curveTable(){ let h='<div class="scroll"><table><thead><tr><th>Tenor</th><th>Yield</th><th>Δ1d</th><th>1m</th><th>1y</th><th>vs funds</th><th>Real</th><th>BE</th><th>Status</th></tr></thead><tbody>';
+  const ff=S('DFF'); TENORS.forEach(t=>{ const s=S(t[2]); if(!s) return; const r=t[3]?S(t[3]):null; const be=r&&r.last!=null?s.last-r.last:null;
+    h+='<tr class="row'+(t[0]===selTenor?' sel':'')+'" data-tenor="'+t[0]+'"><td>'+t[0]+'</td><td class="num" style="color:var(--ink);font-weight:500">'+fmt(s.last,2)+'</td><td class="num '+cls(s.d1)+'">'+bp(s.d1)+'</td><td class="num '+cls(chgBp(s))+'">'+bp(chgBp(s))+'</td><td class="num '+cls(chgBp1y(s))+'">'+bp(chgBp1y(s))+'</td>'+
+      '<td class="num">'+(ff&&ff.last!=null?bp((s.last-ff.last)*100):'—')+'</td><td class="num">'+(r?fmt(r.last,2):'')+'</td><td class="num">'+(be!=null?fmt(be,2):'')+'</td><td>'+statusChip(s.status,s)+'</td></tr>'; });
+  return h+'</tbody></table></div>'; }
+function drill(){ const t=TENORS.find(x=>x[0]===selTenor); const s=t?S(t[2]):null; if(!s) return '<div class="note">select a tenor</div>';
+  const r=t[3]?S(t[3]):null; const ff=S('DFF'); const i=TENORS.indexOf(t); const nxt=i>0?S(TENORS[i-1][2]):null;
+  const roll=nxt&&nxt.last!=null?(s.last-nxt.last)*100:null; const carry=ff&&ff.last!=null?(s.last-ff.last)*100:null;
+  let h='<div style="font-size:22px;font-weight:600;letter-spacing:-.01em" class="num">'+selTenor+' · '+fmt(s.last,2)+'%</div><dl class="kv">'+
+   '<dt>1d / 1m / 1y</dt><dd class="num"><span class="'+cls(s.d1)+'">'+bp(s.d1)+'</span> / <span class="'+cls(chgBp(s))+'">'+bp(chgBp(s))+'</span> / <span class="'+cls(chgBp1y(s))+'">'+bp(chgBp1y(s))+'</span></dd>'+
+   '<dt>1y range</dt><dd class="num">'+fmt(s.lo,2)+' – '+fmt(s.hi,2)+' · '+(s.pct==null?'—':Math.round(s.pct)+'th %ile')+'</dd>'+
+   '<dt>Carry vs funds</dt><dd class="num '+cls(carry)+'">'+bp(carry)+'</dd><dt>Roll-down to '+(i>0?TENORS[i-1][0]:'—')+'</dt><dd class="num">'+bp(roll)+'</dd>';
+  if(r&&r.last!=null){ h+='<dt>Real (TIPS)</dt><dd class="num">'+fmt(r.last,2)+'% <span class="ink3">('+bp(chgBp(r))+' 1m)</span></dd><dt>Breakeven</dt><dd class="num">'+fmt(s.last-r.last,2)+'% <span class="ink3">('+(s.v1m!=null&&r.v1m!=null?bp((s.last-r.last-(s.v1m-r.v1m))*100):'—')+' 1m)</span></dd>'; }
+  h+='<dt>As of</dt><dd>'+esc(s.asof)+' '+statusChip(s.status,null)+'</dd></dl>'+notes('rates.'+selTenor)+'<div class="note"><a href="#" data-prov="'+t[2]+'">Source &amp; definition</a></div>';
+  return h; }
+// horizontal ladder: today bar + 1m/1y ticks, in bp
+function ladder(rows, opts={}){ const vals=rows.flatMap(r=>[r.now,r.m,r.yr]).filter(v=>v!=null); if(!vals.length) return '<div class="note">not yet in the sheet</div>';
+  const W=560, rowH=26, H=rows.length*rowH+8, LBL=opts.lbl||120; const mn=Math.min(0,...vals)-8, mx=Math.max(0,...vals)+8; const X=v=>LBL+(W-LBL-70)*(v-mn)/(mx-mn); let g='<line x1="'+X(0).toFixed(1)+'" x2="'+X(0).toFixed(1)+'" y1="2" y2="'+(H-2)+'" stroke="var(--axis)"/>';
+  rows.forEach((r,i)=>{ const y=i*rowH+6; g+='<text x="4" y="'+(y+13)+'" font-size="12" fill="var(--ink)">'+esc(r.label)+'</text>';
+    if(r.now!=null){ g+='<rect x="'+Math.min(X(0),X(r.now)).toFixed(1)+'" y="'+(y+2)+'" width="'+Math.max(1,Math.abs(X(r.now)-X(0))).toFixed(1)+'" height="14" rx="3" fill="'+(r.color||'var(--s1)')+'"/><text x="'+(W-64)+'" y="'+(y+13)+'" font-size="12" font-weight="600" fill="var(--ink)" class="num">'+Math.round(r.now)+'</text>'; }
+    if(r.m!=null) g+='<line x1="'+X(r.m).toFixed(1)+'" x2="'+X(r.m).toFixed(1)+'" y1="'+y+'" y2="'+(y+18)+'" stroke="var(--ink-3)" stroke-width="2"/>';
+    if(r.yr!=null) g+='<line x1="'+X(r.yr).toFixed(1)+'" x2="'+X(r.yr).toFixed(1)+'" y1="'+y+'" y2="'+(y+18)+'" stroke="var(--s7)" stroke-width="2"/>';
+    g+='<text x="'+(W-4)+'" y="'+(y+13)+'" font-size="10" text-anchor="end" fill="var(--ink-3)" class="num">'+(r.m==null?'':'1m '+Math.round(r.m))+'</text>'; });
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opts.title||'ladder')+'">'+g+'</svg><div class="legend"><span><i style="background:var(--s1)"></i>Today (bp)</span><span><i style="background:var(--ink-3)"></i>1m ago</span><span><i style="background:var(--s7)"></i>1y ago</span></div>'; }
+// stacked real + breakeven = nominal
+function beStack(){ const t=[['5Y','DGS5','DFII5'],['10Y','DGS10','DFII10'],['30Y','DGS30','DFII30']].map(([k,n,r])=>({k, nom:S(n), real:S(r)})).filter(x=>x.nom&&x.real&&x.nom.last!=null&&x.real.last!=null);
+  if(!t.length) return '<div class="note">real yields not yet in the sheet</div>';
+  const W=420,H=210,L=36,B=26,T=14; const ymax=Math.ceil(Math.max(...t.map(x=>x.nom.last))+0.5); const Y=v=>T+(H-T-B)*(1-v/ymax); let g='';
+  for(let v=0;v<=ymax;v+=1) g+='<line x1="'+L+'" x2="'+(W-8)+'" y1="'+Y(v).toFixed(1)+'" y2="'+Y(v).toFixed(1)+'" stroke="var(--grid)"/><text x="'+(L-5)+'" y="'+(Y(v)+4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--ink-3)">'+v+'</text>';
+  const slot=(W-L-16)/t.length; t.forEach((x,i)=>{ const bw=Math.min(90,slot*0.6); const cx=L+8+slot*i+slot/2; const real=x.real.last, nom=x.nom.last, be=nom-real;
+    g+='<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+Y(real).toFixed(1)+'" width="'+bw+'" height="'+(Y(0)-Y(real)).toFixed(1)+'" fill="var(--s1)"/>';
+    g+='<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+Y(nom).toFixed(1)+'" width="'+bw+'" height="'+Math.max(0,(Y(real)-Y(nom)-2)).toFixed(1)+'" fill="var(--s2)"/>';
+    g+='<text x="'+cx.toFixed(1)+'" y="'+(Y(nom)-6).toFixed(1)+'" font-size="12" font-weight="600" text-anchor="middle" fill="var(--ink)" class="num">'+nom.toFixed(2)+'</text>';
+    g+='<text x="'+cx.toFixed(1)+'" y="'+((Y(real)+Y(0))/2+4).toFixed(1)+'" font-size="11" text-anchor="middle" fill="#fff" class="num">'+real.toFixed(2)+'</text>';
+    if(Y(real)-Y(nom)>16) g+='<text x="'+cx.toFixed(1)+'" y="'+((Y(nom)+Y(real))/2+4).toFixed(1)+'" font-size="11" text-anchor="middle" fill="#fff" class="num">'+be.toFixed(2)+'</text>';
+    g+='<text x="'+cx.toFixed(1)+'" y="'+(H-B+16)+'" font-size="11" text-anchor="middle" fill="var(--ink-3)">'+x.k+'</text>'; });
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Nominal yield split into real yield and breakeven">'+g+'</svg><div class="legend"><span><i style="background:var(--s1)"></i>Real (TIPS)</span><span><i style="background:var(--s2)"></i>Breakeven = nominal − real</span></div>'; }
+// Δnominal = Δreal + ΔBE, with shares, for 1m and 1y
+function decomp(){ const n=S('DGS10'), r=S('DFII10'); if(!n||!r||n.v1m==null||r.v1m==null) return '<div class="note">not enough history yet</div>';
+  const rows=[['1 month', (n.last-n.v1m)*100, (r.last-r.v1m)*100], ['1 year', n.v1y!=null&&r.v1y!=null?(n.last-n.v1y)*100:null, n.v1y!=null&&r.v1y!=null?(r.last-r.v1y)*100:null]].filter(x=>x[1]!=null);
+  let h=''; rows.forEach(([w,dn,dr])=>{ const dbe=dn-dr; const tot=Math.abs(dr)+Math.abs(dbe); const rs=tot?Math.abs(dr)/tot:0.5; const W=400;
+    const driver = Math.abs(dn)<3 ? 'flat' : (rs>0.6?'real-yield driven':(rs<0.4?'breakeven driven':'mixed'));
+    h+='<div style="margin:6px 0 10px"><div style="display:flex;justify-content:space-between;font-size:13px"><span><b>'+w+'</b> · 10y nominal <span class="num '+cls(dn)+'">'+bp(dn)+'</span></span><span class="ink2">'+driver+'</span></div>'+
+      '<svg viewBox="0 0 '+W+' 22" class="chart" style="margin:4px 0" aria-label="'+w+' decomposition"><rect x="0" y="6" width="'+(W*rs).toFixed(1)+'" height="10" rx="3" fill="var(--s1)"/><rect x="'+(W*rs+2).toFixed(1)+'" y="6" width="'+Math.max(0,W*(1-rs)-2).toFixed(1)+'" height="10" rx="3" fill="var(--s2)"/></svg>'+
+      '<div style="display:flex;justify-content:space-between;font-size:12px" class="num"><span><i style="display:inline-block;width:10px;height:3px;background:var(--s1);vertical-align:middle;margin-right:5px"></i>Real <span class="'+cls(dr)+'">'+bp(dr)+'</span> · '+Math.round(rs*100)+'%</span><span>Breakeven <span class="'+cls(dbe)+'">'+bp(dbe)+'</span> · '+Math.round((1-rs)*100)+'%<i style="display:inline-block;width:10px;height:3px;background:var(--s2);vertical-align:middle;margin-left:5px"></i></span></div></div>'; });
+  const be=S('BE_10Y_CALC'), pr=S('T10YIE'); if(be&&pr&&be.last!=null&&pr.last!=null){ const gap=(be.last-pr.last)*100; h+='<div class="note">Check: nominal − real = '+be.last.toFixed(2)+'% vs the T10YIE print '+pr.last.toFixed(2)+'% ('+bp(gap)+' gap'+(Math.abs(gap)>5?', <span class="down">above the 5bp tolerance — sources differ in method</span>':'')+').</div>'; }
+  return h; }
+// horizontal bars for levels (global 10y, OAS ladder)
+function hbars(rows, opts={}){ const vals=rows.map(r=>r.v).filter(v=>v!=null); if(!vals.length) return '<div class="note">not yet in the sheet</div>';
+  const W=560,rowH=24,H=rows.length*rowH+6,LBL=opts.lbl||130; const mx=Math.max(...vals)*1.05; const scale=(W-LBL-60)/mx; let g='';
+  rows.forEach((r,i)=>{ const y=i*rowH+3; g+='<text x="4" y="'+(y+14)+'" font-size="12" fill="var(--ink)">'+esc(r.label)+(r.est?' ◌':'')+'</text>';
+    if(r.v!=null){ g+='<rect x="'+LBL+'" y="'+(y+4)+'" width="'+Math.max(1,r.v*scale).toFixed(1)+'" height="14" rx="3" fill="'+(r.color||'var(--s1)')+'" opacity="'+(r.dim?0.55:1)+'"/><text x="'+(LBL+r.v*scale+6).toFixed(1)+'" y="'+(y+15)+'" font-size="11" fill="var(--ink)" class="num">'+(opts.fmt?opts.fmt(r.v):r.v.toFixed(2))+'</text>'; }
+    else g+='<text x="'+(LBL+6)+'" y="'+(y+15)+'" font-size="11" fill="var(--ink-3)">—</text>'; });
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(opts.title||'bars')+'">'+g+'</svg>'; }
+
+// rule-based state lines — the rules are published on the Methodology tab
+function stateLines(){ const out=[]; const g=id=>S(id);
+  const y2=g('DGS2'), y10=g('DGS10'), r10=g('DFII10'), be10=g('T10YIE'), s210=g('US_10Y_2Y');
+  if(y2&&y10&&chgBp(y2)!=null&&chgBp(y10)!=null){ const d2=chgBp(y2), d10=chgBp(y10); const dir=(d2+d10)/2>5?'bear':((d2+d10)/2<-5?'bull':'sideways'); const shape=Math.abs(d10-d2)<5?'parallel':(d10-d2>0?'steepening':'flattening');
+    let drv=''; if(r10&&chgBp(r10)!=null&&Math.abs(d10)>=5){ const rs=Math.abs(chgBp(r10))/(Math.abs(chgBp(r10))+Math.abs(d10-chgBp(r10))); drv=rs>0.6?'; real yields drive most of the move':(rs<0.4?'; breakevens drive most of the move':'; real and breakeven contributions are mixed'); }
+    out.push(['Rates', dir==='sideways'?'Curve broadly unchanged over the month (2y '+bp(d2)+', 10y '+bp(d10)+')'+drv+'.':(dir+' '+shape+' over the month: 2y '+bp(d2)+', 10y '+bp(d10)+(s210?' → 2s10s '+bpAbs(s210.last*100):'')+drv+'.')]); }
+  const ig=g('BAMLC0A0CM'), hy=g('BAMLH0A0HYM2'); if(ig&&hy&&chgBp(ig)!=null&&chgBp(hy)!=null){ const di=chgBp(ig), dh=chgBp(hy);
+    const word=Math.abs(dh)<10&&Math.abs(di)<5?'Spreads contained':(dh>0?'HY widening '+(dh>2*Math.max(di,1)?'faster than IG':'with IG'):'HY tightening'); out.push(['Credit', word+' over the month: IG '+bp(di)+', HY '+bp(dh)+'; HY '+(hy.pct==null?'':Math.round(hy.pct)+'th 1y percentile')+'.']); }
+  const dxy=g('DXY'); if(dxy&&dxy.d1m!=null&&y10){ const dd=dxy.d1m*100; const d10=chgBp(y10); out.push(['USD', 'Dollar index '+pctStr(dd,1)+' over the month'+(d10!=null?(dd>0.3&&d10>5?', firmer alongside Treasury yields':(dd<-0.3&&d10>5?', softer despite higher yields':(dd<-0.3&&d10<-5?', softer with yields':''))):'')+'.']); }
+  const spx=D.live['S&P'], stil=D.live['STI']; if(spx&&spx.chg!=null){ let t='S&P 500 '+pctStr(spx.chg,2)+' vs previous close'; if(r10&&chgBp(r10)!=null) t+= (chgBp(r10)>10?'; equities '+(spx.chg>-0.5?'holding':'weaker')+' with real yields up '+bpAbs(chgBp(r10))+' on the month':''); if(stil&&stil.chg!=null) t+='; STI '+pctStr(stil.chg,2); out.push(['Equities', t+'.']); }
+  const nl=g('Net_Liquidity'); if(nl&&nl.d1m!=null) out.push(['Liquidity', 'Fed net liquidity '+(nl.d1m>0?'+':'')+fmt(nl.d1m,0)+'bn over the month ('+(nl.d1m<-100?'draining':(nl.d1m>100?'adding':'flat'))+'); ON RRP '+(g('RRPONTSYD')?fmt(g('RRPONTSYD').last,0)+'bn':'—')+'.']);
+  const gold=g('GOLD'), oil=g('DCOILWTICO'); if(gold&&oil&&gold.d1m!=null&&oil.d1m!=null) out.push(['Commodities', 'Gold '+pctStr(gold.d1m*100,1)+' and WTI '+pctStr(oil.d1m*100,1)+' over the month'+((gold.d1m>0)!==(oil.d1m>0)?', diverging':', moving together')+'.']);
+  const sora=g('SORA_3M'), ff=g('DFF'); if(sora&&ff&&chgBp(sora)!=null&&chgBp(ff)!=null) out.push(['Singapore', '3M SORA '+bp(chgBp(sora))+' vs Fed funds '+bp(chgBp(ff))+' over the month; SORA '+bpAbs((sora.last-ff.last)*100)+' '+(sora.last<ff.last?'below':'above')+' funds.']);
+  return out; }
+
+/* ===================================================================================== views */
+const main=document.getElementById('main');
+function section(title, sub){ return '<div class="section"><span class="label">'+esc(title)+'</span>'+(sub?' <span class="mini">'+esc(sub)+'</span>':'')+'</div>'; }
+function card(cls, title, sub, body, id){ return '<div class="card '+cls+'"'+(id?' id="'+id+'"':'')+'><h2>'+esc(title)+(sub?'<small>'+sub+'</small>':'')+'</h2>'+body+'</div>'; }
+const V={};
+V.board=()=>{ const st=stateLines();
+  const tapeIds=[['DGS2','UST 2y'],['DGS10','UST 10y'],['DFII10','10y real'],['T10YIE','10y BE'],['US_10Y_2Y','2s10s',{unit:'sp'}],['BAMLC0A0CM','IG OAS'],['BAMLH0A0HYM2','HY OAS'],['VIXCLS','VIX',{unit:'',dec:1}],['DXY','DXY',{unit:'',dec:2}],['GOLD','Gold',{unit:'$',dec:0}],['DCOILWTICO','WTI',{unit:'$',dec:2}],['BTCUSD','Bitcoin',{unit:'$',dec:0}],['SORA_3M','3M SORA'],['DEXSIUS','USDSGD',{unit:'',dec:4}]];
+  let h='<div class="tape">'+tapeIds.map(([id,l,o])=>{ const s=S(id); const oo=o||{}; if(oo.unit==='sp'){ return '<div class="tile" data-drill="'+id+'"><div class="k"><span>'+l+'</span></div><div class="v num">'+(s?bpAbs(s.last*100):'—')+'</div><div class="d"><span class="'+cls(s?s.d1:null)+'">'+(s?bp(s.d1)+' 1d':'')+'</span><span class="'+cls(chgBp(s))+'">'+(s?bp(chgBp(s))+' 1m':'')+'</span></div></div>'; } return tile(id,l,oo); }).join('')+
+    liveTile('S&P','S&P 500')+liveTile('Nasdaq','Nasdaq 100')+liveTile('STI','STI')+liveTile('USDJPY','USDJPY')+'</div>';
+  h+='<div class="grid" style="margin-top:12px">';
+  h+=card('c7','State','rule-based, from the sheet\'s monthly deltas · rules on the Methodology tab','<div class="state">'+st.map(([k,t])=>'<div class="k">'+k+'</div><div>'+t+'</div>').join('')+'</div>'+(D.notes.regime?'<div class="read"><b>Regime read.</b> '+esc(D.notes.regime.text)+'<span class="date">'+esc(D.notes.regime.date)+'</span></div>':'<div class="note">No regime note published yet.</div>')+notes('board','Board'));
+  h+=card('c5','What moved the 10y','Δnominal = Δreal + Δbreakeven',decomp());
+  h+=card('c6','UST 10y and 2s10s — 1Y','two charts, one axis each','<div id="ch-b1"></div><div id="ch-b2" style="margin-top:8px"></div>');
+  h+=card('c6','HY OAS and VIX — 1Y','','<div id="ch-b3"></div><div id="ch-b4" style="margin-top:8px"></div>');
+  h+=card('c12','Live board','OANDA mid vs previous daily close · '+esc(D.liveMeta.refreshed||'—')+' '+TZ_LABEL+' · refreshes every 10 min',liveBoard());
+  h+='</div>';
+  main.innerHTML=h;
+  lineChart(document.getElementById('ch-b1'),[{key:'UST 10y',label:'UST 10y %',color:'var(--s1)'}],{h:150,title:'UST 10y'});
+  lineChart(document.getElementById('ch-b2'),[{key:'2s10s',label:'2s10s (pp)',color:'var(--s2)'}],{h:130,zero:true,title:'2s10s'});
+  lineChart(document.getElementById('ch-b3'),[{key:'HY OAS',label:'HY OAS %',color:'var(--s1)'}],{h:150,title:'HY OAS'});
+  lineChart(document.getElementById('ch-b4'),[{key:'VIX',label:'VIX',color:'var(--s2)'}],{h:130,dec:1,title:'VIX'});
+};
+function liveBoard(){ const groups={}; Object.keys(D.live).forEach(k=>{ if(k.startsWith('sid:')) return; const q=D.live[k]; (groups[q.group]=groups[q.group]||[]).push(q); });
+  const order=['Rates','Equity','FX majors','FX Asia','Commodities','Crypto']; if(!Object.keys(groups).length) return '<div class="note">Live tab not available.</div>';
+  return '<div class="scroll"><table><thead><tr><th>Instrument</th><th>Mid</th><th>vs close</th><th>from open</th><th>prev close</th><th>as of</th></tr></thead><tbody>'+order.filter(g=>groups[g]).map(g=>'<tr class="grp"><td colspan="6">'+g+(g==='Rates'?' <span class="mini" style="text-transform:none">bond futures prices: up = yield down</span>':'')+'</td></tr>'+groups[g].map(q=>'<tr><td>'+esc(q.label)+'</td><td class="num" style="color:var(--ink)">'+fmt(q.mid,Math.min(q.dec==null?2:q.dec,4))+'</td><td class="num '+cls(q.chg)+'">'+pctStr(q.chg,2)+'</td><td class="num '+cls(q.fromOpen)+'">'+pctStr(q.fromOpen,2)+'</td><td class="num">'+fmt(q.prev,Math.min(q.dec==null?2:q.dec,4))+' <span class="mini">'+shortDate(q.prevDate)+'</span></td><td class="mini">'+(q.status==='tradeable'?esc((q.time||'').slice(11,16)):'closed')+'</td></tr>').join('')).join('')+'</tbody></table></div>'; }
+
+function renderRates(){ V.rates(); }
+V.rates=()=>{ let h='';
+  h+=section('US rates & curve','levels from FRED H.15 · today vs 1m and 1y ago');
+  h+='<div class="grid">';
+  h+=card('c8','UST par curve','tap a tenor to drill down','<div id="curve"></div>'+curveTable());
+  h+=card('c4','Tenor drill-down','','<div id="drill">'+drill()+'</div>');
+  h+=card('c6','Curve spreads','bp · today / 1m / 1y',ladder(SPREADS.map(([l,id])=>{ const s=S(id); return {label:l, now:s&&s.last!=null?s.last*100:null, m:s&&s.v1m!=null?s.v1m*100:null, yr:s&&s.v1y!=null?s.v1y*100:null}; }),{title:'Curve spreads'})+notes('rates'));
+  h+=card('c6','Policy-rate proxy ◌','bills and 1y over effective funds · not a futures-implied path',policyProxy());
+  h+='</div>';
+  h+=section('Policy & liquidity');
+  h+='<div class="grid">'+card('c12','Fed policy',null,statTable(PANELS.policy))+card('c7','Liquidity',null,statTable(PANELS.liquidity))+card('c5','Net liquidity $bn — 1Y','balance sheet − TGA − ON RRP','<div id="ch-nl"></div>')+'</div>';
+  h+=section('Inflation & real','TIPS real yields, breakevens, and what moved the 10y');
+  h+='<div class="grid">'+card('c5','Nominal = real + breakeven','%',beStack())+card('c7','What moved the 10y','Δnominal = Δreal + Δbreakeven',decomp())+card('c6','Real yields',null,statTable(PANELS.real))+card('c6','Breakevens',null,statTable(PANELS.be))+card('c6','10y real vs 10y breakeven — 1Y','','<div id="ch-rb"></div>')+card('c6','5y and 10y breakeven — 1Y','','<div id="ch-be"></div>')+'</div>';
+  h+=section('Global government yields','OECD long-term rates via FRED · MONTHLY · spreads vs US computed in the sheet');
+  h+='<div class="grid">'+card('c7','10y yields','% · monthly',hbars(GLOBAL.map(([n,cc,id])=>{ const s=S(id); return {label:n, v:s?s.last:null, color:cc==='US'?'var(--s2)':'var(--s1)'}; }),{title:'Global 10y'}))+card('c5','Spread to UST','bp · monthly',globalTable())+card('c7','10y yields — 3 markets vs US','% · monthly steps, carried forward between prints','<div id="ch-gl"></div>')+card('c5','Global read','',notes('rates.global','Global')||'<div class="note">No note published for global rates. Daily central-bank feeds (ECB, BoE, MOF, RBA) are a later iteration; until then these are OECD month-end prints.</div>')+'</div>';
+  h+=section('Singapore rates','MAS · SORA fixings, standing facility corridor, T-bill auctions, SGS');
+  h+='<div class="grid">'+card('c7','SORA & corridor',null,statTable(PANELS.sgrates))+card('c5','SORA curve vs corridor','compounded SORA by tenor',soraCurve())+card('c7','T-bills & SGS',null,statTable(PANELS.sgbills))+card('c5','3M SORA vs Fed funds — 1Y','','<div id="ch-sora"></div>'+notes('rates.sg','Singapore'))+'</div>';
+  main.innerHTML=h;
+  curveChart(document.getElementById('curve'));
+  main.querySelectorAll('tr[data-tenor]').forEach(tr=>tr.addEventListener('click',()=>{ selTenor=tr.dataset.tenor; renderRates(); }));
+  lineChart(document.getElementById('ch-nl'),[{key:'Net liquidity $bn',label:'Net liquidity $bn',color:'var(--s1)'}],{h:170,dec:0,title:'Net liquidity'});
+  lineChart(document.getElementById('ch-rb'),[{key:'10y real',label:'10y real %',color:'var(--s1)'},{key:'10y BE',label:'10y breakeven %',color:'var(--s2)'}],{h:180,title:'10y real vs breakeven'});
+  lineChart(document.getElementById('ch-be'),[{key:'5y BE',label:'5y BE %',color:'var(--s3)'},{key:'10y BE',label:'10y BE %',color:'var(--s2)'}],{h:180,title:'Breakevens'});
+  lineChart(document.getElementById('ch-gl'),[{key:'G10Y US',label:'US',color:'var(--s2)'},{key:'G10Y DE',label:'Germany',color:'var(--s1)'},{key:'G10Y GB',label:'UK',color:'var(--s3)'},{key:'G10Y JP',label:'Japan',color:'var(--s7)'}],{h:200,title:'Global 10y'});
+  lineChart(document.getElementById('ch-sora'),[{key:'3M SORA',label:'3M SORA %',color:'var(--s1)'},{key:'Fed funds',label:'Fed funds %',color:'var(--s2)'}],{h:170,title:'SORA vs Fed funds'});
+};
+function policyProxy(){ const ff=S('DFF'), p6=S('POLICY_PROXY_6M'), p1=S('POLICY_PROXY_1Y'), y1=S('DGS1'), y2=S('DGS2'); if(!ff||ff.last==null) return '<div class="note">Fed funds not available</div>';
+  const rows=[['Effective funds', ff.last, null],['6m bill − funds', p6?p6.last*100:null, p6?chgBp(p6):null],['1y − funds', p1?p1.last*100:null, p1?chgBp(p1):null]];
+  let fwd=null; if(y1&&y2&&y1.last!=null&&y2.last!=null){ fwd=(Math.pow(1+y2.last/100,2)/(1+y1.last/100)-1)*100; }
+  let h='<dl class="kv"><dt>Effective funds</dt><dd class="num">'+fmt(ff.last,2)+'%'+(S('DFEDTARL')&&S('DFEDTARU')?' <span class="ink3">(target '+fmt(S('DFEDTARL').last,2)+'–'+fmt(S('DFEDTARU').last,2)+')</span>':'')+'</dd>';
+  h+='<dt>6m bill over funds</dt><dd class="num">'+(p6?bp(p6.last*100)+' <span class="ink3">('+bp(chgBp(p6))+' 1m)</span>':'—')+'</dd><dt>1y over funds</dt><dd class="num">'+(p1?bp(p1.last*100)+' <span class="ink3">('+bp(chgBp(p1))+' 1m)</span>':'—')+'</dd>';
+  h+='<dt>1y1y forward (display)</dt><dd class="num">'+(fwd==null?'—':fmt(fwd,2)+'% <span class="ink3">('+bp((fwd-ff.last)*100)+' vs funds)</span>')+'</dd></dl>';
+  const hikes = p6&&p6.last!=null ? Math.round(p6.last*100/25*10)/10 : null;
+  h+='<div class="note">Read: '+(hikes==null?'':( (p6.last*100>10?'~'+hikes+' × 25bp of tightening':(p6.last*100<-10?'~'+Math.abs(hikes)+' × 25bp of easing':'little change'))+' priced over six months by the bill curve, before term premium.'))+' This is a proxy from Treasury bills and the effective funds rate — not a CME/OIS-implied probability.</div>';
+  h+='<div id="ch-pp" style="margin-top:8px"></div>'; setTimeout(()=>{ const el=document.getElementById('ch-pp'); if(el) lineChart(el,[{key:'Policy proxy 6m',label:'6m bill − funds (pp)',color:'var(--s1)'}],{h:130,zero:true,title:'Policy proxy'}); },0);
+  return h; }
+function globalTable(){ let h='<div class="scroll"><table><thead><tr><th>Market</th><th>10y</th><th>vs UST</th><th>1m</th><th>1y</th><th>As of</th></tr></thead><tbody>';
+  GLOBAL.forEach(([n,cc,id,sp])=>{ const s=S(id), p=sp?S(sp):null; if(!s) return; h+='<tr class="row" data-drill="'+id+'"><td>'+n+'</td><td class="num" style="color:var(--ink)">'+fmt(s.last,2)+'</td><td class="num '+(p?cls(p.last):'')+'">'+(p?bp(p.last*100):'—')+'</td><td class="num '+cls(chgBp(s))+'">'+bp(chgBp(s))+'</td><td class="num '+cls(chgBp1y(s))+'">'+bp(chgBp1y(s))+'</td><td>'+statusChip('MONTHLY',s)+'</td></tr>'; });
+  return h+'</tbody></table></div>'; }
+function soraCurve(){ const t=[['ON','SORA_ON'],['1M','SORA_1M'],['3M','SORA_3M'],['6M','SORA_6M']].map(([k,id])=>({k,s:S(id)})).filter(x=>x.s&&x.s.last!=null); if(!t.length) return '<div class="note">SORA not available</div>';
+  const dep=S('SG_SF_DEPO'), bor=S('SG_SF_BORR'); const W=420,H=170,L=36,R=12,T=14,B=26; const all=t.flatMap(x=>[x.s.last,x.s.v1m]).concat([dep&&dep.last,bor&&bor.last]).filter(v=>v!=null); const mn=Math.min(...all)-0.2, mx=Math.max(...all)+0.2;
+  const X=i=>L+(W-L-R)*i/(t.length-1), Y=v=>T+(H-T-B)*(1-(v-mn)/(mx-mn)); let g='';
+  niceTicks(mn,mx,4).forEach(v=>{ g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v).toFixed(1)+'" y2="'+Y(v).toFixed(1)+'" stroke="var(--grid)"/><text x="'+(L-5)+'" y="'+(Y(v)+4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--ink-3)">'+v.toFixed(2)+'</text>'; });
+  if(dep&&bor&&dep.last!=null&&bor.last!=null) g+='<rect x="'+L+'" y="'+Y(bor.last).toFixed(1)+'" width="'+(W-L-R)+'" height="'+(Y(dep.last)-Y(bor.last)).toFixed(1)+'" fill="var(--wash)"/><text x="'+(L+4)+'" y="'+(Y(bor.last)-3).toFixed(1)+'" font-size="10" fill="var(--ink-3)">MAS corridor '+dep.last.toFixed(2)+'–'+bor.last.toFixed(2)+'</text>';
+  const m=t.filter(x=>x.s.v1m!=null); if(m.length>1) g+='<path d="'+m.map((x,i)=>(i?'L':'M')+X(t.indexOf(x)).toFixed(1)+' '+Y(x.s.v1m).toFixed(1)).join(' ')+'" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 4"/>';
+  g+='<path d="'+t.map((x,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(x.s.last).toFixed(1)).join(' ')+'" fill="none" stroke="var(--s1)" stroke-width="2"/>';
+  t.forEach((x,i)=>{ g+='<circle cx="'+X(i).toFixed(1)+'" cy="'+Y(x.s.last).toFixed(1)+'" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/><text x="'+X(i).toFixed(1)+'" y="'+(Y(x.s.last)-9).toFixed(1)+'" font-size="11" text-anchor="middle" fill="var(--ink)" class="num">'+x.s.last.toFixed(2)+'</text><text x="'+X(i).toFixed(1)+'" y="'+(H-B+16)+'" font-size="11" text-anchor="middle" fill="var(--ink-3)">'+x.k+'</text>'; });
+  const sgs=S('SGS_10Y'), ust=S('DGS10'); const extra = sgs&&ust&&sgs.last!=null&&ust.last!=null ? '<div class="note">SGS 10y − UST 10y: '+bp((sgs.last-ust.last)*100)+' (display arithmetic)</div>' : '';
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="SORA curve versus MAS corridor">'+g+'</svg><div class="legend"><span><i style="background:var(--s1)"></i>Today</span><span><i style="background:var(--ink-3)"></i>1m ago</span></div>'+extra; }
+
+V.credit=()=>{ const rows=OAS.map(([l,id])=>{ const s=S(id); return {label:l, v:s?s.last*100:null, color:s&&s.last*100>=250?'var(--s2)':'var(--s1)', est:!s}; });
+  let h=section('Credit','ICE BofA option-adjusted spreads via FRED · bp over Treasuries');
+  h+='<div class="grid">'+card('c7','OAS ladder','bp · by rating tier',hbars(rows,{lbl:130,fmt:v=>Math.round(v)+'',title:'OAS ladder'})+notes('credit'))+card('c5','Carry','all prints, no estimates',carryMath())+card('c12','Tiers',null,oasTable())+card('c12','Credit vs rates vs equities',null,statTable(PANELS.creditrisk))+
+    card('c6','HY OAS and IG OAS — 1Y','','<div id="ch-c1"></div><div id="ch-c2" style="margin-top:8px"></div>')+card('c6','BB vs CCC — 1Y','the quality gap inside high yield','<div id="ch-c3"></div><div id="ch-c4" style="margin-top:8px"></div>')+'</div>';
+  main.innerHTML=h;
+  lineChart(document.getElementById('ch-c1'),[{key:'HY OAS',label:'HY OAS %',color:'var(--s1)'}],{h:150,title:'HY OAS'}); lineChart(document.getElementById('ch-c2'),[{key:'IG OAS',label:'IG OAS %',color:'var(--s2)'}],{h:130,title:'IG OAS'});
+  lineChart(document.getElementById('ch-c3'),[{key:'BB OAS',label:'BB OAS %',color:'var(--s1)'}],{h:150,title:'BB OAS'}); lineChart(document.getElementById('ch-c4'),[{key:'CCC OAS',label:'CCC OAS %',color:'var(--s2)'}],{h:130,title:'CCC OAS'});
+};
+function oasTable(){ let h='<div class="scroll"><table><thead><tr><th>Tier</th><th>OAS bp</th><th>Δ1d</th><th>1m</th><th>1y</th><th>1y %ile</th><th>3y %ile</th><th>1y range bp</th><th>60 obs</th><th>Status</th></tr></thead><tbody>';
+  OAS.forEach(([l,id])=>{ const s=S(id); if(!s){ h+='<tr><td>'+l+'</td><td colspan="9" class="mini">not in sheet yet</td></tr>'; return; }
+    h+='<tr class="row" data-drill="'+id+'"><td>'+l+'</td><td class="num" style="color:var(--ink);font-weight:500">'+Math.round(s.last*100)+'</td><td class="num '+cls(s.d1)+'">'+bp(s.d1)+'</td><td class="num '+cls(chgBp(s))+'">'+bp(chgBp(s))+'</td><td class="num '+cls(chgBp1y(s))+'">'+bp(chgBp1y(s))+'</td><td class="num">'+(s.pct==null?'—':Math.round(s.pct))+'</td><td class="num">'+(s.pct3y==null?'—':Math.round(s.pct3y))+'</td><td class="num">'+Math.round(s.lo*100)+'–'+Math.round(s.hi*100)+'</td><td class="spark">'+sparkSvg(s.spark)+'</td><td>'+statusChip(s.status,s)+'</td></tr>'; });
+  return h+'</tbody></table></div>'; }
+function carryMath(){ const hy=S('BAMLH0A0HYM2'), ig=S('BAMLC0A0CM'), hye=S('BAMLH0A0HYM2EY'), ige=S('BAMLC0A0CMEY'), i13=S('BAMLC1A0C13Y'); if(!hy||!ig) return '<div class="note">credit not available</div>';
+  let h='<dl class="kv"><dt>HY OAS</dt><dd class="num">'+Math.round(hy.last*100)+'bp <span class="ink3">('+(hy.pct==null?'':Math.round(hy.pct)+'th 1y %ile')+(hy.pct3y!=null?', '+Math.round(hy.pct3y)+'th 3y':'')+')</span></dd>';
+  if(hye) h+='<dt>HY all-in yield</dt><dd class="num">'+fmt(hye.last,2)+'% <span class="ink3">(ICE effective yield)</span></dd>';
+  h+='<dt>IG OAS</dt><dd class="num">'+Math.round(ig.last*100)+'bp</dd>'; if(ige) h+='<dt>IG all-in yield</dt><dd class="num">'+fmt(ige.last,2)+'%</dd>';
+  if(hye&&ige) h+='<dt>HY − IG yield pick-up</dt><dd class="num">'+bp((hye.last-ige.last)*100)+'</dd>';
+  if(i13) h+='<dt>IG 1–3y OAS</dt><dd class="num">'+Math.round(i13.last*100)+'bp</dd>';
+  const hyig=S('HY_IG_OAS'); if(hyig) h+='<dt>HY − IG spread</dt><dd class="num">'+Math.round(hyig.last*100)+'bp <span class="ink3">('+bp(chgBp(hyig))+' 1m)</span></dd>';
+  h+='</dl><div class="note">Spread duration is not published on FRED, so carry-vs-widening break-evens are not shown; every number here is a print.</div>';
+  return h; }
+
+V.fx=()=>{ let h=section('FX','Fed H.10 daily fixes · DXY rebuilt from the six ICE basket legs · live OANDA mids');
+  h+='<div class="grid">'+card('c12','Majors & dollar',null,statTable(PANELS.fx,{live:true}))+card('c12','Asia & SGD',null,statTable(PANELS.fxasia,{live:true})+fxLiveAsia())+card('c6','10y rate differentials','monthly OECD · vs UST',diffTable()+notes('fx'))+
+    card('c6','DXY — 1Y','','<div id="ch-f1"></div>')+card('c6','USDJPY and EURUSD — 1Y','','<div id="ch-f2"></div><div id="ch-f3" style="margin-top:8px"></div>')+card('c6','USDSGD — 1Y','','<div id="ch-f4"></div>')+'</div>';
+  main.innerHTML=h;
+  lineChart(document.getElementById('ch-f1'),[{key:'DXY',label:'DXY',color:'var(--s1)'}],{h:170,title:'DXY'});
+  lineChart(document.getElementById('ch-f2'),[{key:'USDJPY',label:'USDJPY',color:'var(--s1)'}],{h:120,title:'USDJPY'}); lineChart(document.getElementById('ch-f3'),[{key:'EURUSD',label:'EURUSD',color:'var(--s2)'}],{h:120,dec:4,title:'EURUSD'});
+  lineChart(document.getElementById('ch-f4'),[{key:'USDSGD',label:'USDSGD',color:'var(--s1)'}],{h:170,dec:4,title:'USDSGD'});
+};
+function fxLiveAsia(){ const l=['USDCNH','USDHKD','EURSGD','GBPSGD','NZDUSD'].map(k=>D.live[k]).filter(Boolean); if(!l.length) return ''; return '<div class="note" style="margin-top:8px">Live only: '+l.map(q=>esc(q.label)+' <b class="num">'+fmt(q.mid,4)+'</b> <span class="'+cls(q.chg)+'">'+pctStr(q.chg,2)+'</span>').join(' · ')+'</div>'; }
+function diffTable(){ const m=[['EURUSD','G10Y_DE_US','UST − Bund'],['GBPUSD','G10Y_GB_US','UST − Gilt'],['USDJPY','G10Y_JP_US','UST − JGB'],['USDCAD','G10Y_CA_US','UST − Canada'],['USDCHF','G10Y_CH_US','UST − Swiss'],['AUDUSD','G10Y_AU_US','UST − ACGB']];
+  let h='<div class="scroll"><table><thead><tr><th>Pair</th><th>Differential</th><th>bp</th><th>1m</th></tr></thead><tbody>'; m.forEach(([p,id,l])=>{ const s=S(id); h+='<tr><td>'+p+'</td><td class="mini" style="text-align:left">'+l+'</td><td class="num" style="color:var(--ink)">'+(s?bp(-s.last*100):'—')+'</td><td class="num">'+(s?bp(-chgBp(s)):'—')+'</td></tr>'; });
+  return h+'</tbody></table></div><div class="note">Positive = US yields above the other market. Monthly OECD data; sign flipped from the sheet\'s "market − US" columns for display.</div>'; }
+
+V.cmdty=()=>{ let h=section('Commodities & crypto','OANDA daily closes (NY 17:00) · EIA/FRED oil · live mids');
+  h+='<div class="grid">'+card('c12','Board','live OANDA mid vs previous close','<div class="tape">'+['Gold','Silver','XAUXAG','Copper','Brent','WTI','NatGas','BTC','ETH'].map(k=>liveTile(k)).join('')+'</div>')+
+    card('c12','Commodities',null,statTable(PANELS.cmdty,{live:true})+notes('commodities'))+card('c12','Crypto',null,statTable(PANELS.crypto,{live:true}))+
+    card('c4','Gold — 1Y','','<div id="ch-m1"></div>')+card('c4','WTI — 1Y','','<div id="ch-m2"></div>')+card('c4','Copper/Gold ×1000 — 1Y','growth vs fear','<div id="ch-m3"></div>')+card('c6','Bitcoin — 1Y','','<div id="ch-m4"></div>')+'</div>';
+  main.innerHTML=h;
+  lineChart(document.getElementById('ch-m1'),[{key:'Gold',label:'Gold $/oz',color:'var(--s4)'}],{h:160,dec:0,title:'Gold'}); lineChart(document.getElementById('ch-m2'),[{key:'WTI',label:'WTI $/bbl',color:'var(--s1)'}],{h:160,title:'WTI'});
+  lineChart(document.getElementById('ch-m3'),[{key:'Copper/Gold x1000',label:'Copper/Gold ×1000',color:'var(--s3)'}],{h:160,dec:3,title:'Copper/Gold'}); lineChart(document.getElementById('ch-m4'),[{key:'Bitcoin',label:'Bitcoin $',color:'var(--s1)'}],{h:160,dec:0,title:'Bitcoin'});
+};
+
+let rotTf='r20';
+V.equities=()=>{ let h=section('Equities','live index board · ETF/SPY relative strength (GOOGLEFINANCE mirror)');
+  h+='<div class="grid">'+card('c12','Index board','live OANDA CFD mid vs previous close','<div class="tape">'+['S&P','Nasdaq','Russell','DAX','FTSE','Nikkei','HSI','STI'].map(k=>liveTile(k)).join('')+'</div>'+notes('equities.sg','Singapore'))+
+    card('c12','Rotation — ETF / SPY relative strength','panel as of '+esc(D.ratios[0]?D.ratios[0].date:'—')+' · <span class="mini">· = measured to an earlier date</span>',rotationTable())+
+    card('c5','Ranked relative return vs SPY','<span id="tfsel"></span>','<div id="rank"></div>')+card('c7','STI — 1Y','OANDA SG30 CFD daily close','<div id="ch-e1"></div>'+notes('equities'))+'</div>';
+  main.innerHTML=h;
+  document.getElementById('tfsel').innerHTML='<div class="seg" style="padding:2px">'+[['r1','1D'],['r5','5D'],['r20','20D'],['r60','60D'],['ytd','YTD']].map(([k,l])=>'<button data-tf="'+k+'" aria-selected="'+(k===rotTf)+'" style="padding:3px 10px;font-size:12px">'+l+'</button>').join('')+'</div>';
+  document.querySelectorAll('[data-tf]').forEach(b=>b.addEventListener('click',()=>{ rotTf=b.dataset.tf; V.equities(); }));
+  document.getElementById('rank').innerHTML=rankBars();
+  lineChart(document.getElementById('ch-e1'),[{key:'STI',label:'STI',color:'var(--s1)'}],{h:200,dec:0,title:'STI'});
+  loadRatioSparks();
+};
+function rotationTable(){ if(!D.ratios.length) return '<div class="note">RatiosLatest not available.</div>'; const groups=[]; D.ratios.forEach(r=>{ if(!groups.includes(r.group)) groups.push(r.group); });
+  let h='<div class="scroll"><table><thead><tr><th>Ticker</th><th>Ratio</th><th>1D</th><th>5D</th><th>20D</th><th>60D</th><th>YTD</th><th>1y %ile</th><th>&gt;50d</th><th>&gt;200d</th><th>60 obs ratio</th></tr></thead><tbody>';
+  groups.forEach(g=>{ h+='<tr class="grp"><td colspan="11">'+esc(g)+'</td></tr>'; D.ratios.filter(r=>r.group===g).forEach(r=>{ const st=r.status.indexOf('STALE')===0; const pc=v=>'<td class="num '+cls(v)+'">'+(v==null?'—':sign(v)+v.toFixed(1)+'%')+'</td>';
+    h+='<tr'+(st?' class="stale"':'')+'><td>'+r.t+(st?' ·':'')+'</td><td class="num">'+(r.ratio==null?'—':r.ratio.toFixed(4))+'</td>'+pc(r.r1)+pc(r.r5)+pc(r.r20)+pc(r.r60)+pc(r.ytd)+'<td class="num">'+(r.pct==null?'—':Math.round(r.pct))+'</td><td class="'+(r.a50?'up':'down')+'">'+(r.a50?'▲':'▼')+'</td><td class="'+(r.a200?'up':'down')+'">'+(r.a200?'▲':'▼')+'</td><td class="spark" data-rs="'+r.t+'"></td></tr>'; }); });
+  return h+'</tbody></table></div>'; }
+function rankBars(){ const rows=D.ratios.filter(r=>r[rotTf]!=null).sort((a,b)=>b[rotTf]-a[rotTf]); if(!rows.length) return '<div class="note">no data</div>';
+  const W=420,rowH=16,H=rows.length*rowH+4; const mx=Math.max(...rows.map(r=>Math.abs(r[rotTf])))||1; const neg=Math.max(0,...rows.map(r=>-r[rotTf])); const X0=140+Math.round(200*neg/(neg+Math.max(0,...rows.map(r=>r[rotTf]))||1)); const sc=(W-140-70)/(neg+Math.max(0,...rows.map(r=>r[rotTf]))||1); let g='<line x1="'+X0+'" x2="'+X0+'" y1="0" y2="'+H+'" stroke="var(--axis)"/>';
+  rows.forEach((r,i)=>{ const y=i*rowH+2; const v=r[rotTf]; const w=Math.abs(v)*sc; g+='<text x="'+(X0-6)+'" y="'+(y+11)+'" font-size="10" text-anchor="end" fill="var(--ink-2)">'+r.t+' <tspan fill="var(--ink-3)">'+esc(r.group)+'</tspan></text><rect x="'+(v>=0?X0:X0-w).toFixed(1)+'" y="'+(y+2)+'" width="'+Math.max(1,w).toFixed(1)+'" height="10" rx="2" fill="'+(v>=0?'var(--green)':'var(--red)')+'"/><text x="'+(v>=0?X0+w+4:X0+4).toFixed(1)+'" y="'+(y+11)+'" font-size="10" text-anchor="start" fill="var(--ink-3)" class="num">'+sign(v)+v.toFixed(1)+'%</text>'; });
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Ranked relative return vs SPY">'+g+'</svg>'; }
+async function loadRatioSparks(){ try{ if(!D.ratiosHist){ const rows=await tab('Ratios','select * order by A desc limit 260'); const h=rows[0]; const body=rows.slice(1).filter(r=>r[0]).sort((a,b)=>a[0]<b[0]?-1:1); const spy=h.indexOf('SPY'); const cols={}; h.forEach((k,i)=>{ if(i&&i!==spy) cols[k]=body.map(r=>{ const a=num(r[i]), b=num(r[spy]); return a!=null&&b?a/b:null; }); }); D.ratiosHist=cols; }
+    document.querySelectorAll('[data-rs]').forEach(td=>{ const a=(D.ratiosHist[td.dataset.rs]||[]).filter(v=>v!=null).slice(-60); td.innerHTML=sparkSvg(a); }); }catch(e){ /* sparklines optional */ } }
+
+V.macro=()=>{ let h=section('Macro prints','BLS/BEA via FRED · weekly claims, monthly payrolls, CPI, core PCE');
+  h+='<div class="grid">'+card('c12','US prints',null,statTable(PANELS.macro)+notes('macro'))+card('c6','Initial claims (k) — last 60 weeks','weekly',sparkBig('ICSA'))+card('c6','CPI YoY % — recent prints','monthly · the 2Y mirror holds about a year of YoY values',sparkBig('CPIAUCSL'))+'</div>';
+  main.innerHTML=h; };
+function sparkBig(id){ const s=S(id); if(!s||!s.spark.length) return '<div class="note">not available</div>'; const a=s.spark; const W=560,H=160,L=40,R=12,T=12,B=8; const mn=Math.min(...a),mx=Math.max(...a); const X=i=>L+(W-L-R)*i/(a.length-1), Y=v=>T+(H-T-B)*(1-(v-mn)/(mx-mn||1)); let g='';
+  niceTicks(mn,mx,3).forEach(v=>{ g+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(v).toFixed(1)+'" y2="'+Y(v).toFixed(1)+'" stroke="var(--grid)"/><text x="'+(L-5)+'" y="'+(Y(v)+4).toFixed(1)+'" font-size="10" text-anchor="end" fill="var(--ink-3)">'+fmtTick(v)+'</text>'; });
+  g+='<path d="'+a.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ')+'" fill="none" stroke="var(--s1)" stroke-width="2"/><circle cx="'+X(a.length-1).toFixed(1)+'" cy="'+Y(a[a.length-1]).toFixed(1)+'" r="4" fill="var(--s1)" stroke="var(--surface)" stroke-width="2"/><text x="'+(X(a.length-1)-8).toFixed(1)+'" y="'+(Y(a[a.length-1])-8).toFixed(1)+'" font-size="11" text-anchor="end" fill="var(--ink)" class="num">'+fmt(a[a.length-1],1)+'</text>';
+  return '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(s.label)+'">'+g+'</svg><div class="note">Last '+a.length+' observations, ending '+esc(s.asof)+'.</div>'; }
+
+V.method=()=>{ const srcs={}; Object.values(D.sm).forEach(m=>{ const k=m.source||'—'; srcs[k]=(srcs[k]||0)+1; });
+  let h=section('Methodology','the machine owns the numbers; the analyst owns the interpretation');
+  h+='<div class="grid">'+card('c6','Pipeline','','<div style="font-size:13px"><p>A Google Sheet is the database and the engine. Apps Script fetches every series daily (FRED at 05:00 SGT, after the H.15 release; MAS and OANDA alongside), appends to a single one-row-per-day history, recomputes derived columns, and writes the statistics this page reads. A separate 10-minute job quotes 35 instruments on OANDA against each instrument\'s own previous daily close. This page is a static file that reads the sheet\'s public tabs; it computes nothing that already exists in the sheet.</p><p>Schema version '+esc(D.meta.schema_version||'—')+' · generated '+esc(D.meta.generated_at||'—')+' '+TZ_LABEL+' · last complete run '+esc(D.meta.last_complete||'—')+'.</p></div>')+
+    card('c6','Sources','','<table><thead><tr><th>Source</th><th>Series</th><th>Frequency</th></tr></thead><tbody>'+[['FRED','Federal Reserve Bank of St. Louis: Treasury curve (H.15), TIPS, breakevens, Fed funds/SOFR, balance sheet, ICE BofA OAS and yields, H.10 FX, oil, CPI/PCE/claims/payrolls; OECD long-term rates','daily · weekly · monthly'],['MAS','Monetary Authority of Singapore API gateway: SORA fixings and volumes, standing facility corridor, T-bill auction results, SGS benchmarks','daily · per auction'],['OANDA','Daily mid closes (NY 17:00) for gold, silver, copper, BTC, ETH, USDSGD, STI CFD; the live board','daily · 10 min'],['GOOGLEFINANCE','ETF prices for the relative-strength screen','daily']].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:left;white-space:normal;font-size:12px">'+r[1]+'</td><td style="font-size:12px">'+r[2]+'</td></tr>').join('')+'</tbody></table>')+
+    card('c6','Definitions','','<dl class="kv"><dt>Real yield</dt><dd>TIPS constant-maturity yield (FRED DFII*)</dd><dt>Breakeven</dt><dd>Nominal − real for the same tenor, computed in the sheet; the T5YIE/T10YIE prints are shown alongside and a gap over 5bp is flagged</dd><dt>Curve spreads</dt><dd>Long tenor − short tenor, in bp, computed in the sheet with full history</dd><dt>OAS</dt><dd>ICE BofA option-adjusted spread over Treasuries; percentiles over 1y and 3y of the index\'s own history</dd><dt>Net liquidity</dt><dd>Fed balance sheet − Treasury General Account − ON RRP</dd><dt>DXY</dt><dd>Rebuilt from the six ICE basket legs at the published weights (EUR 57.6, JPY 13.6, GBP 11.9, CAD 9.1, SEK 4.2, CHF 3.6)</dd><dt>Policy-rate proxy ◌</dt><dd>6m bill − effective funds and 1y − effective funds. A bill-curve proxy, not a futures- or OIS-implied probability</dd><dt>◌</dt><dd>Marks an estimate or proxy, never a print</dd></dl>')+
+    card('c6','Status states','','<dl class="kv"><dt>Fresh</dt><dd>Within its own publication cadence and dated with the freshest series</dd><dt>Behind</dt><dd>Healthy, but dated more than 3 days before the freshest series — do not read it as the same day</dd><dt>Weekly / Monthly</dt><dd>Native frequency; 1w and 1m changes are prior-print based; monthly lines on charts are steps, carried forward between prints</dd><dt>Late</dt><dd>Past its own cadence limit (daily 6d, weekly 18d, monthly 3× cadence + 5d; FX fixes carry a 12-day floor)</dd><dt>Missing</dt><dd>Registered but no observation yet</dd></dl>')+
+    card('c12','State rules (Board)','deterministic, from the monthly changes in the sheet','<dl class="kv"><dt>Curve direction</dt><dd>bear if the average of Δ2y and Δ10y over one month exceeds +5bp, bull below −5bp, otherwise sideways</dd><dt>Curve shape</dt><dd>steepening if Δ10y − Δ2y &gt; +5bp, flattening below −5bp, otherwise parallel</dd><dt>Driver</dt><dd>share of |Δreal| in |Δreal| + |Δbreakeven| for the 10y: &gt;60% real-yield driven, &lt;40% breakeven driven, else mixed</dd><dt>Credit</dt><dd>contained if |ΔHY| &lt; 10bp and |ΔIG| &lt; 5bp; HY widening faster than IG if ΔHY &gt; 2×ΔIG</dd><dt>USD</dt><dd>DXY monthly change against the sign of Δ10y</dd><dt>Equities</dt><dd>live S&amp;P change vs previous close, read against the monthly change in the 10y real yield</dd><dt>Liquidity</dt><dd>net liquidity monthly change: draining below −$100bn, adding above +$100bn</dd></dl>')+
+    card('c12','Health','per-series coverage from the sheet\'s Health tab','<div id="health">loading…</div>')+'</div>';
+  main.innerHTML=h; loadHealth(); };
+async function loadHealth(){ const el=document.getElementById('health'); try{ const rows=await tab('Health'); const h=rows[0]; const ix=Object.fromEntries(h.map((k,i)=>[k,i]));
+    const body=rows.slice(1).filter(r=>r[0]&&r[0]!=='duplicate_dates'); const late=body.filter(r=>r[ix.status]==='LATE').length, miss=body.filter(r=>r[ix.status]==='MISSING').length;
+    let t='<div class="note" style="margin:0 0 6px">'+body.length+' series · '+late+' late · '+miss+' missing'+(rows[1]&&rows[1][9]?' · '+rows[1][9]+' history rows':'')+(rows[1]&&rows[1][8]!=null&&rows[1][8]!==''?' · '+rows[1][8]+' duplicate dates':'')+'</div><div class="scroll" style="max-height:340px;overflow:auto"><table><thead><tr><th>Series</th><th>First</th><th>Last</th><th>Obs</th><th>Coverage</th><th>Cadence d</th><th>Status</th></tr></thead><tbody>';
+    body.forEach(r=>{ t+='<tr><td>'+esc(r[0])+'</td><td class="num">'+esc(r[ix.first])+'</td><td class="num">'+esc(r[ix.last])+'</td><td class="num">'+esc(r[ix.obs])+'</td><td class="num">'+esc(r[ix.coverage_pct])+'%</td><td class="num">'+esc(r[ix.cadence_days])+'</td><td>'+statusChip(r[ix.status])+'</td></tr>'; });
+    el.innerHTML=t+'</tbody></table></div>'; }catch(e){ el.innerHTML='<div class="note">Health tab not published yet (run healthCheck() in the sheet).</div>'; } }
+
+/* ===================================================================================== provenance modal */
+function openProv(id){ const s=S(id), m=D.sm[id]||{}; const el=document.createElement('div'); el.className='modal';
+  const src = m.source==='NONE'||!m.source ? 'Computed in the sheet' : m.source+(m.sourceId?' · '+m.sourceId:'')+(m.field?' · '+m.field:'');
+  el.innerHTML='<div class="box"><button class="btn x" type="button">Close</button><h3>'+esc(m.label||(s&&s.label)||id)+'</h3><div class="mini">'+esc(id)+'</div>'+
+    (s?'<div style="font-size:26px;font-weight:600;margin:6px 0" class="num">'+fmt(s.last,4).replace(/\.?0+$/,'')+' <span class="mini">as of '+esc(s.asof)+'</span></div>':'<div class="note">Not yet in the sheet.</div>')+
+    '<dl class="kv"><dt>Source</dt><dd>'+esc(src)+'</dd><dt>Group</dt><dd>'+esc(m.group||'')+'</dd>'+(m.notes?'<dt>Notes</dt><dd>'+esc(m.notes)+'</dd>':'')+(s?'<dt>Cadence</dt><dd>'+(s.cadence==null?'—':s.cadence+' days')+' · '+statusChip(s.status,null)+'</dd><dt>1y range</dt><dd class="num">'+fmt(s.lo,4).replace(/\.?0+$/,'')+' – '+fmt(s.hi,4).replace(/\.?0+$/,'')+' · '+(s.pct==null?'':Math.round(s.pct)+'th percentile')+'</dd>':'')+'</dl>'+
+    (s?'<div style="margin-top:8px">'+sparkSvg(s.spark,560,90)+'<div class="note">Last '+s.spark.length+' observations.</div></div>':'')+'</div>';
+  document.body.appendChild(el); const close=()=>el.remove(); el.querySelector('.x').addEventListener('click',close); el.addEventListener('click',e=>{ if(e.target===el) close(); }); document.addEventListener('keydown',function k(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown',k); } }); }
+document.addEventListener('click',e=>{ const p=e.target.closest('[data-prov]'); if(p){ e.preventDefault(); openProv(p.dataset.prov); return; } const d=e.target.closest('[data-drill]'); if(d && !e.target.closest('a')) openProv(d.dataset.drill); });
+
+/* ===================================================================================== tabs / theme / boot */
+let cur='board';
+function renderTabs(){ document.getElementById('tabs').innerHTML=TABS.map(([k,l])=>'<button role="tab" data-v="'+k+'" aria-selected="'+(k===cur)+'">'+l+'</button>').join(''); }
+function show(k){ cur=k; renderTabs(); try{ V[k](); }catch(e){ main.innerHTML='<div class="banner err">Render error on '+esc(k)+': '+esc(e.message)+'</div>'; console.error(e); } if(location.hash!=='#'+k) history.replaceState(null,'','#'+k); window.scrollTo({top:0}); }
+document.getElementById('tabs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(b) show(b.dataset.v); });
+document.getElementById('themeBtn').addEventListener('click',()=>{ const r=document.documentElement; const curT=r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'); const n=curT==='dark'?'light':'dark'; r.setAttribute('data-theme',n); try{ localStorage.setItem('mm-theme',n); }catch(e){} });
+try{ const t=localStorage.getItem('mm-theme'); if(t) document.documentElement.setAttribute('data-theme',t); }catch(e){}
+document.getElementById('sheetLink').href='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/edit';
+
+function freshness(){ const ids=Object.keys(D.stats); const late=ids.filter(id=>D.stats[id].status==='LATE').length; const asof=ids.map(id=>D.stats[id].asof).filter(Boolean).sort().pop();
+  const gen=D.meta.generated_at||''; document.getElementById('fresh').innerHTML='Data as of <b>'+esc(asof||'—')+'</b>'+(D.hasExt?(late?' · <span class="down">'+late+' of '+ids.length+' series late</span>':' · all '+ids.length+' series within cadence'):'')+(gen?' · sheet refreshed '+esc(gen.slice(0,16))+' '+TZ_LABEL:'')+(D.liveMeta.refreshed?' · live '+esc(D.liveMeta.refreshed.slice(11,16)):''); }
+async function boot(){ const banner=document.getElementById('banner');
+  try{
+    const [st, ds, lv, rl, nt, mt, sm] = await Promise.all([tab('DashStats'), tab('DashSeries'), tab('Live').catch(()=>null), tab('RatiosLatest').catch(()=>null), tab('Notes').catch(()=>null), tab('Meta').catch(()=>null), tab('Series').catch(()=>null)]);
+    loadStats(st); loadSeries(ds); if(lv) loadLive(lv); if(rl) loadRatios(rl); if(nt) loadNotes(nt); if(mt) loadMeta(mt); if(sm) loadSeriesMeta(sm);
+    if(mt && D.meta.schema_version!==SCHEMA_VERSION){ banner.innerHTML='<div class="banner err">Sheet schema is v'+esc(D.meta.schema_version)+', this page expects v'+SCHEMA_VERSION+'. Refusing to render until they match.</div>'; return; }
+    if(!mt) banner.innerHTML='<div class="banner">The sheet has not published a Meta tab yet (v5 not deployed). Showing what exists; new panels will fill in after the v5 cut-over.</div>';
+    freshness();
+    const h=location.hash.replace('#',''); show(TABS.some(t=>t[0]===h)?h:'board');
+    document.getElementById('foot').innerHTML='Sources: FRED (Federal Reserve Bank of St. Louis), OECD via FRED, Monetary Authority of Singapore, OANDA, Google Finance. Items marked ◌ are proxies or estimates, not prints. Nothing here is investment advice. Data sheet, code and tests: <a href="https://github.com/evanlai2805/markets-dashboard" target="_blank" rel="noopener">github.com/evanlai2805/markets-dashboard</a>.';
+    setInterval(async()=>{ try{ const rows=await tab('Live'); D.live={}; loadLive(rows); freshness(); if(cur==='board'||cur==='cmdty'||cur==='equities'||cur==='fx') show(cur); }catch(e){} }, LIVE_REFRESH_MS);
+  }catch(e){ banner.innerHTML='<div class="banner err">Could not load the data sheet: '+esc(e.message)+'. If the sheet is public and the tabs exist, retry in a minute.</div>'; console.error(e); }
+}
+boot();
+})();
+</script>
+</body>
+</html>

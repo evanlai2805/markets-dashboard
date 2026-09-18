@@ -1,6 +1,32 @@
 /**
- * Markets Brief Data — Google Apps Script (v4.2, 14 Sep 2026)
- * ==========================================================
+ * Markets Brief Data — Google Apps Script (v5, 18 Sep 2026)
+ * ========================================================
+ * WHAT CHANGED IN v5 — the sheet becomes a PUBLIC data engine behind a static web page
+ *
+ *   The Sheet is now shared "anyone with the link can view" and read by docs/index.html
+ *   through the gviz CSV endpoint. Every tab is therefore public, hidden or not. Rules:
+ *   1. SECRET_KEYS      — API keys and the OANDA account id are read from Script Properties
+ *                         ONLY. getCfg_ no longer falls back to the Config tab for them, the
+ *                         setupSheets seed no longer creates rows for them, and
+ *                         scrubConfigKeys() blanks any that a copied sheet still carries.
+ *   2. log_ / diag_     — scrub api_key=… and Bearer … before writing, so an error message
+ *                         can never put a key into a public Log or Diagnostics row.
+ *   3. IBKR Log / Runs  — removed, together with ingestRunLogs. Personal positions never
+ *                         touch this workbook. privacyAudit() asserts the tab whitelist.
+ *   4. 33 new series    — UST 1m/6m/1y/3y/7y/20y, TIPS 7y/20y/30y, 5y breakeven, core CPI,
+ *                         twelve ICE BofA OAS tiers + two effective yields, ten OECD monthly
+ *                         10y government yields. Backfill with BACKFILL_ONLY, see the runbook.
+ *   5. COMPUTED         — curve spreads (5s30s, 10s30s, 2s30s, 20s30s), 5y/30y breakevens,
+ *                         a 10y breakeven cross-check, the policy-rate proxy legs and nine
+ *                         10y spreads to the US. Canonical numbers live HERE, with history;
+ *                         the page only presents them.
+ *   6. Meta / Health / Notes tabs — schema_version + clocks for the page; per-series
+ *                         coverage from healthCheck; Evan's hand-written interpretation.
+ *   7. selfTest()       — asserts the DashStats / DashSeries legacy contract the frozen
+ *                         Dashboard tab and the page both depend on.
+ *
+ * -------------------------------------------------------------------------------
+ * WHAT CHANGED IN v4.2 — and why Latest and the Dashboard were a day stale on 13 and 14 Sep
  * WHAT CHANGED IN v4.2 — and why Latest and the Dashboard were a day stale on 13 and 14 Sep
  *
  *   The fetch was never the problem. MacroHistory was current both mornings. dailyUpdate ran,
@@ -128,14 +154,13 @@
  *   Ratios              GOOGLEFINANCE price matrix (SPY + the ETF/SPY watch list).
  *   RatiosLatest        ETF/SPY relative-strength stats, recomputed daily.
  *   Config              API keys + flags.   Log / Diagnostics   script + fetch logs.
- *   Dashboard           first tab (Dashboard.gs).  Runs / IBKR Log   the brief's run CSVs.
+ *   Dashboard           first tab (Dashboard.gs).  Meta / Health / Notes   page contract tabs.
  *
  * SOURCES
  *   FRED   api.stlouisfed.org  (key)   — rates, liquidity, credit, macro prints
  *   MAS    apimg-gw keyed gateway      — SORA, standing facilities; MAS_V1 for T-bills
  *   OANDA  api-fxpractice.oanda.com    — gold, copper, BTC, ETH, USDSGD, STI CFD
- *   (IBKR ETF/SPY ratios are computed by the brief at runtime; the Ratios tab is a
- *    GOOGLEFINANCE convenience mirror, IBKR remains the source of record.)
+ *   GOOGLEFINANCE  Ratios tab — ETF/SPY relative-strength mirror.
  */
 
 // ---------------------------------------------------------------- constants
@@ -173,6 +198,17 @@ const DEFAULT_SERIES = [
   ['DFII5','UST 5y real (TIPS) %','FRED','DFII5','','US rates',''],
   ['T10YIE','10y breakeven inflation %','FRED','T10YIE','','US rates',''],
   ['T5YIFR','5y5y forward inflation %','FRED','T5YIFR','','US rates',''],
+  // v5: the rest of the par curve, the rest of the real curve, the 5y breakeven print
+  ['DGS1MO','UST 1m yield %','FRED','DGS1MO','','US rates','v5'],
+  ['DGS6MO','UST 6m yield %','FRED','DGS6MO','','US rates','v5'],
+  ['DGS1','UST 1y yield %','FRED','DGS1','','US rates','v5'],
+  ['DGS3','UST 3y yield %','FRED','DGS3','','US rates','v5'],
+  ['DGS7','UST 7y yield %','FRED','DGS7','','US rates','v5'],
+  ['DGS20','UST 20y yield %','FRED','DGS20','','US rates','v5'],
+  ['DFII7','UST 7y real (TIPS) %','FRED','DFII7','','US rates','v5'],
+  ['DFII20','UST 20y real (TIPS) %','FRED','DFII20','','US rates','v5'],
+  ['DFII30','UST 30y real (TIPS) %','FRED','DFII30','','US rates','v5'],
+  ['T5YIE','5y breakeven inflation %','FRED','T5YIE','','US rates','v5'],
   // --- FRED: policy & money-market rates
   ['DFF','Fed funds effective %','FRED','DFF','','US policy',''],
   ['DFEDTARU','Fed target upper %','FRED','DFEDTARU','','US policy',''],
@@ -188,6 +224,19 @@ const DEFAULT_SERIES = [
   ['DTWEXBGS','Broad USD index (Fed)','FRED','DTWEXBGS','','Risk','DXY proxy'],
   ['BAMLH0A0HYM2','US HY OAS %','FRED','BAMLH0A0HYM2','','Credit','3y rolling history from Apr 2026'],
   ['BAMLC0A0CM','US IG OAS %','FRED','BAMLC0A0CM','','Credit','3y rolling history from Apr 2026'],
+  // v5: the OAS ladder by rating tier, plus effective yields for all-in carry (ICE BofA via FRED)
+  ['BAMLC0A1CAAA','US AAA OAS %','FRED','BAMLC0A1CAAA','','Credit','v5'],
+  ['BAMLC0A2CAA','US AA OAS %','FRED','BAMLC0A2CAA','','Credit','v5'],
+  ['BAMLC0A3CA','US A OAS %','FRED','BAMLC0A3CA','','Credit','v5'],
+  ['BAMLC0A4CBBB','US BBB OAS %','FRED','BAMLC0A4CBBB','','Credit','v5'],
+  ['BAMLC1A0C13Y','US IG 1-3y OAS %','FRED','BAMLC1A0C13Y','','Credit','v5'],
+  ['BAMLH0A1HYBB','US HY BB OAS %','FRED','BAMLH0A1HYBB','','Credit','v5'],
+  ['BAMLH0A2HYB','US HY B OAS %','FRED','BAMLH0A2HYB','','Credit','v5'],
+  ['BAMLH0A3HYC','US HY CCC & lower OAS %','FRED','BAMLH0A3HYC','','Credit','v5'],
+  ['BAMLHE00EHYIOAS','Euro HY OAS %','FRED','BAMLHE00EHYIOAS','','Credit','v5'],
+  ['BAMLEMCBPIOAS','EM corporate OAS %','FRED','BAMLEMCBPIOAS','','Credit','v5'],
+  ['BAMLH0A0HYM2EY','US HY effective yield %','FRED','BAMLH0A0HYM2EY','','Credit','v5'],
+  ['BAMLC0A0CMEY','US IG effective yield %','FRED','BAMLC0A0CMEY','','Credit','v5'],
   ['NFCI','Chicago Fed NFCI','FRED','NFCI','','Conditions',''],
   ['ANFCI','Chicago Fed adj NFCI','FRED','ANFCI','','Conditions',''],
   // --- FRED: commodities & FX (daily)
@@ -212,6 +261,20 @@ const DEFAULT_SERIES = [
   ['UNRATE','Unemployment rate %','FRED','UNRATE','','US macro',''],
   ['CPIAUCSL','CPI index','FRED','CPIAUCSL','','US macro',''],
   ['PCEPILFE','Core PCE index','FRED','PCEPILFE','','US macro',''],
+  ['CPILFESL','Core CPI index','FRED','CPILFESL','','US macro','v5'],
+  // v5: 10y government yields, OECD long-term rates via FRED. MONTHLY — the page labels them
+  // so. China, India and Brazil are not published on FRED; daily central-bank feeds are a
+  // later iteration.
+  ['G10Y_US','US 10y (OECD, monthly) %','FRED','IRLTLT01USM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_DE','Germany 10y (OECD, monthly) %','FRED','IRLTLT01DEM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_GB','UK 10y (OECD, monthly) %','FRED','IRLTLT01GBM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_JP','Japan 10y (OECD, monthly) %','FRED','IRLTLT01JPM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_AU','Australia 10y (OECD, monthly) %','FRED','IRLTLT01AUM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_CA','Canada 10y (OECD, monthly) %','FRED','IRLTLT01CAM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_IT','Italy 10y (OECD, monthly) %','FRED','IRLTLT01ITM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_FR','France 10y (OECD, monthly) %','FRED','IRLTLT01FRM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_CH','Switzerland 10y (OECD, monthly) %','FRED','IRLTLT01CHM156N','','Global govies','monthly OECD; v5'],
+  ['G10Y_ZA','South Africa 10y (OECD, monthly) %','FRED','IRLTLT01ZAM156N','','Global govies','monthly OECD; v5'],
   // --- OANDA
   ['GOLD','Gold $/oz','OANDA','XAU_USD','c','Commodities','OANDA daily mid close, NY 17:00 alignment'],
   ['USDSGD_OANDA','USDSGD (OANDA NY close)','OANDA','USD_SGD','c','FX','timelier than DEXSIUS; run probeOanda() to see other instruments'],
@@ -279,6 +342,27 @@ const COMPUTED = {
   'ETH_BTC':        m => div(m.ETHUSD, m.BTCUSD),
   'Net_Liquidity':  m => (isNum(m.WALCL) && isNum(m.RRPONTSYD) && isNum(m.WTREGEN)) ? (m.WALCL - m.RRPONTSYD * 1000 - m.WTREGEN) : '',
   'DXY':            m => dxyCompute_(i => m[DXY_BASKET[i][0]]),
+  // v5: canonical curve / inflation / policy / global numbers. Computed here so they carry
+  // history (percentiles, ranges, sparklines) — the page never recomputes a number that
+  // exists in the sheet.
+  'US_5Y_30Y':      m => sub(m.DGS30, m.DGS5),
+  'US_10Y_30Y':     m => sub(m.DGS30, m.DGS10),
+  'US_2Y_30Y':      m => sub(m.DGS30, m.DGS2),
+  'US_20Y_30Y':     m => sub(m.DGS30, m.DGS20),
+  'BE_5Y':          m => sub(m.DGS5, m.DFII5),
+  'BE_30Y':         m => sub(m.DGS30, m.DFII30),
+  'BE_10Y_CALC':    m => sub(m.DGS10, m.DFII10),      // cross-check vs the T10YIE print; the page flags a gap > 5bp
+  'POLICY_PROXY_6M':m => sub(m.DGS6MO, m.DFF),        // bills over funds — NOT a futures-implied path
+  'POLICY_PROXY_1Y':m => sub(m.DGS1, m.DFF),
+  'G10Y_DE_US':     m => sub(m.G10Y_DE, m.G10Y_US),
+  'G10Y_GB_US':     m => sub(m.G10Y_GB, m.G10Y_US),
+  'G10Y_JP_US':     m => sub(m.G10Y_JP, m.G10Y_US),
+  'G10Y_AU_US':     m => sub(m.G10Y_AU, m.G10Y_US),
+  'G10Y_CA_US':     m => sub(m.G10Y_CA, m.G10Y_US),
+  'G10Y_IT_US':     m => sub(m.G10Y_IT, m.G10Y_US),
+  'G10Y_FR_US':     m => sub(m.G10Y_FR, m.G10Y_US),
+  'G10Y_CH_US':     m => sub(m.G10Y_CH, m.G10Y_US),
+  'G10Y_ZA_US':     m => sub(m.G10Y_ZA, m.G10Y_US),
 };
 
 // ETF/SPY relative-strength universe (Evan's groups) — GOOGLEFINANCE mirror.
@@ -290,7 +374,7 @@ const RATIO_GROUPS = [
   ['Sector', ['XLK','XLF','XLE','XLV','XLY','XLP','XLI','XLB','XLU','XLRE','XLC']],
   ['Factor', ['MTUM','SPMO','SPHB','SPLV','USMV','QUAL']],
   ['International', ['EFA','VEA','VXUS','EEM']],
-  ['Book', ['IGV','SMH']],
+  ['Thematic', ['IGV','SMH']],
 ];
 // GOOGLEFINANCE needs the right exchange prefix or the ticker silently returns blank.
 // SPMO and IGV are STILL empty in all 2,937 rows as of 10 Sep 2026. v4 stops them dragging
@@ -313,7 +397,16 @@ const GF_EXCHANGE = { QQQ:'NASDAQ', VXUS:'NASDAQ', SMH:'NASDAQ',
                       IGV:'BATS', MTUM:'BATS', QUAL:'BATS', USMV:'BATS',
                       SPMO:'NYSEARCA', SPHB:'NYSEARCA' };
 const RATIOS_START = '2015-01-01';
-const LOG_FOLDER_NAME = 'Markets Brief Log';
+// v5: a PUBLIC sheet. These names are read from Script Properties only — never from the
+// Config tab, never seeded into it, and scrubConfigKeys() blanks them if a copy carries them.
+const SECRET_KEYS = ['FRED_API_KEY','OANDA_API_KEY','OANDA_ACCOUNT_ID','MAS_API_KEY',
+                     'MAS_KEY_SORA','MAS_KEY_FX','MAS_KEY_BANKRATES','MAS_KEY_RESERVES'];
+const isSecretKey_ = k => SECRET_KEYS.indexOf(k) >= 0 || (/(_API_KEY|_KEY|_SECRET|_TOKEN)$/.test(k) && k !== 'MAS_KEY_HEADER');
+// Every tab that may exist on the public sheet, and why. privacyAudit() fails on anything else.
+const PUBLIC_TABS = ['Dashboard','DashStats','DashSeries','Live','Ratios','RatiosLatest','MacroHistory',
+                     'MacroData (1Y)','MacroData (2Y)','MacroData (5Y)','MacroData (10Y)','Latest','Series',
+                     'Config','Log','Diagnostics','Notes','Meta','Health','GFTest'];
+const SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------- small helpers
 function isNum(v){ return typeof v === 'number' && isFinite(v); }
@@ -326,9 +419,11 @@ function toDate_(s){ const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return
 // v3.1: Sheets parses a cell whose text starts with = + - @ as a FORMULA. dailyUpdate's
 // detail string began "+13 obs, wrote 13" and every Diagnostics row came back #ERROR!.
 function cellSafe_(v){ const s=String(v); return /^[=+\-@]/.test(s) ? "'"+s : s; }
-function log_(msg){ const s=ss_().getSheetByName(TAB.log)||ss_().insertSheet(TAB.log); s.appendRow([Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm:ss'),cellSafe_(String(msg).slice(0,49000))]); }
-function diag_(fn,series,status,detail){ const s=ss_().getSheetByName(TAB.diag)||ss_().insertSheet(TAB.diag); s.appendRow([Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm:ss'),fn,series,status,cellSafe_(String(detail).slice(0,4000))]); }
-function getCfg_(k,dflt){ const p=PropertiesService.getScriptProperties().getProperty(k); if(p) return p; const s=ss_().getSheetByName(TAB.config); if(!s) return dflt; for(const r of s.getDataRange().getValues()) if(String(r[0]).trim()===k && String(r[1]).trim()!=='') return String(r[1]).trim(); return dflt; }
+// v5: nothing that looks like a credential reaches a public tab, whatever an upstream error echoes.
+function scrubSecrets_(s){ return String(s).replace(/api_key=[^&\s"']+/gi,'api_key=***').replace(/Bearer\s+\S+/g,'Bearer ***').replace(/keyid[=:]\s*\S+/gi,'keyid=***'); }
+function log_(msg){ const s=ss_().getSheetByName(TAB.log)||ss_().insertSheet(TAB.log); s.appendRow([Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm:ss'),cellSafe_(scrubSecrets_(msg).slice(0,49000))]); }
+function diag_(fn,series,status,detail){ const s=ss_().getSheetByName(TAB.diag)||ss_().insertSheet(TAB.diag); s.appendRow([Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm:ss'),fn,series,status,cellSafe_(scrubSecrets_(detail).slice(0,4000))]); }
+function getCfg_(k,dflt){ const p=PropertiesService.getScriptProperties().getProperty(k); if(p) return p; if(isSecretKey_(k)) return dflt; const s=ss_().getSheetByName(TAB.config); if(!s) return dflt; for(const r of s.getDataRange().getValues()) if(String(r[0]).trim()===k && String(r[1]).trim()!=='') return String(r[1]).trim(); return dflt; }
 function setCfg_(k,v){ const s=sheet_(TAB.config); const vals=s.getDataRange().getValues(); for(let i=0;i<vals.length;i++) if(String(vals[i][0]).trim()===k){ s.getRange(i+1,2).setValue(v); return; } s.appendRow([k,v]); }
 
 // --- v3 FIX 1: tolerant truthiness. A Config flag may be boolean TRUE, "TRUE", "true",
@@ -460,12 +555,11 @@ function fullHeader_(){ return ['Date'].concat(seriesOrder_()); }
 function setupSheets(){
   const ss=ss_(); const mk=n=>ss.getSheetByName(n)||ss.insertSheet(n);
   const cfg=mk(TAB.config);
+  // v5: no secret rows. Keys live in Script Properties (Project Settings) — this tab is public.
   const seed=[
-    ['key','value'],['FRED_API_KEY',''],
-    ['MAS_KEY_SORA',''],['MAS_KEY_FX',''],['MAS_KEY_BANKRATES',''],['MAS_KEY_RESERVES',''],['MAS_API_KEY',''],
+    ['key','value'],
     ['MAS_GW_BASE','https://eservices.mas.gov.sg/apimg-gw'],['MAS_KEY_HEADER','keyid'],
-    ['MAS_GW_FILTER','between'],['MAS_GW_START','1970-01-01'],
-    ['OANDA_API_KEY',''],['OANDA_ACCOUNT_ID',''],['OANDA_ENV','practice'],
+    ['MAS_GW_FILTER','between'],['MAS_GW_START','1970-01-01'],['OANDA_ENV','practice'],
     ['BACKFILL_DONE','FALSE'],['BACKFILL_CURSOR',''],['LAST_RUN','']];
   if(cfg.getLastRow()===0) cfg.getRange(1,1,seed.length,2).setValues(seed);
   const ser=mk(TAB.series);
@@ -474,6 +568,7 @@ function setupSheets(){
   const h=mk(HIST); if(h.getLastRow()===0){ writeHeader_(h,fullHeader_()); h.setFrozenRows(1); h.setFrozenColumns(1); }
   ROLLING.forEach(([n])=>{ const s=mk(n); if(s.getLastRow()===0){ writeHeader_(s,fullHeader_()); s.setFrozenRows(1); s.setFrozenColumns(1);} });
   mk(TAB.latest); mk(TAB.ratiosLatest); mk(TAB.log); mk(TAB.diag);
+  ensureNotesTab_(); ensureMetaTab_();
   buildRatiosTab_();
   log_('setupSheets: done — '+readSeries_().length+' series seeded');
 }
@@ -1011,7 +1106,6 @@ function dailyUpdate_(){
   const stamp = Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm');
   const stampDone_ = () => { setFlag_('LAST_RUN', stamp); setFlag_('LAST_COMPLETE', stamp); };
   if(finalizeBackfill_(t0, stampDone_)){
-    try{ ingestRunLogs(); }catch(e){ diag_('ingestRunLogs','-','ERROR',e.message); }
     try{ trimLog_(); }catch(e){ diag_('trimLog_','-','ERROR',e.message); }
     setFlag_('DAILY_STAGE','');
     // v4: setFlag_ (TEXT), not setCfg_. Sheets coerces "2026-09-10 06:02" written with
@@ -1025,6 +1119,8 @@ function dailyUpdate_(){
     // while the sheet had in fact run that morning.
     stampDone_();          // idempotent — the dashboard stage already wrote these
     clearContinue_();
+    try{ writeMeta_(); }catch(e){ diag_('writeMeta_','-','ERROR',e.message); }
+    try{ selfTest(); }catch(e){ diag_('selfTest','-','ERROR',e.message); }
     log_('dailyUpdate done');
   } else {
     stampRun_(); scheduleContinue_('finalising paused');
@@ -1049,6 +1145,7 @@ function refreshPresentation_(){
   const t2 = Date.now();
   try{ refreshDashboard(); diag_('refreshPresentation','dashboard','OK', Math.round((Date.now()-t2)/1000)+'s'); }
   catch(e){                diag_('refreshPresentation','dashboard','ERROR', e.message); }
+  try{ writeMeta_(); }catch(e){ diag_('refreshPresentation','meta','ERROR', e.message); }
   log_('refreshPresentation: done in '+Math.round((Date.now()-t0)/1000)+'s');
 }
 
@@ -1122,7 +1219,7 @@ function updateRatios_(){
   const out = [['group','ticker','date','ratio','rel_1d','rel_5d','rel_20d','rel_60d','rel_ytd',
                 'sma20','sma50','sma200','above50','above200','pct_rank_1y','hi_1y','lo_1y','n','status','stale_days']];
   if(lastRow < 30){
-    out.push(['','','','','','','','','','','','','','','','','',0,'GOOGLEFINANCE not readable — brief uses IBKR fallback','']);
+    out.push(['','','','','','','','','','','','','','','','','',0,'GOOGLEFINANCE not readable','']);
     return writeRatios_(out);
   }
   const vals = sh.getRange(1,1,lastRow,lastCol).getValues();
@@ -1462,6 +1559,113 @@ function staleLimitDays_(id, cadence){
   else                   limit = cadence * 3 + 5;
   return Math.max(limit, publishLagFloor_(id));
 }
+// ---------------------------------------------------------------- v5: page contract tabs
+const NOTES_TAB='Notes', META_TAB='Meta', HEALTH_TAB='Health';
+// Notes: Evan's interpretation. key | text | date (typed as text). Never cleared by any render.
+function ensureNotesTab_(){
+  const ss=ss_(); let sh=ss.getSheetByName(NOTES_TAB); if(sh) return sh;
+  sh=ss.insertSheet(NOTES_TAB);
+  const rows=[['key','text','date'],
+    ['regime','',''],['board','',''],['rates','',''],['rates.sg','',''],['credit','',''],['fx','',''],
+    ['commodities','',''],['equities','',''],['equities.sg','',''],['macro','','']];
+  sh.getRange(1,1,rows.length,3).setValues(rows); sh.getRange(1,1,1,3).setFontWeight('bold');
+  sh.getRange('A:C').setNumberFormat('@'); sh.setColumnWidth(2,640); sh.setFrozenRows(1);
+  sh.getRange(1,5).setValue('Blank text = hidden on the page. Date as yyyy-mm-dd text. Keys: regime, one per page tab, rates.<tenor> e.g. rates.10Y, rates.sg, equities.sg.');
+  return sh;
+}
+// Meta: what the page checks before it renders anything.
+function ensureMetaTab_(){
+  const ss=ss_(); let sh=ss.getSheetByName(META_TAB); if(sh) return sh;
+  sh=ss.insertSheet(META_TAB); sh.getRange(1,1,1,2).setValues([['key','value']]).setFontWeight('bold');
+  sh.getRange('A:B').setNumberFormat('@'); writeMeta_(); return sh;
+}
+function writeMeta_(){
+  const sh=ss_().getSheetByName(META_TAB)||ensureMetaTab_();
+  const rows=[['key','value'],
+    ['schema_version',String(SCHEMA_VERSION)],
+    ['generated_at',Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm:ss')],
+    ['last_run',String(getCfg_('LAST_RUN','')||'')],
+    ['last_complete',String(getCfg_('LAST_COMPLETE','')||'')],
+    ['timezone',TZ],
+    ['series_count',String(readSeries_().length+Object.keys(COMPUTED).length)]];
+  sh.clearContents(); sh.getRange(1,1,rows.length,2).setNumberFormat('@').setValues(rows); sh.getRange(1,1,1,2).setFontWeight('bold');
+}
+// One-off after copying a sheet that still carries key values in Config. Idempotent.
+function scrubConfigKeys(){
+  const sh=ss_().getSheetByName(TAB.config); if(!sh){ log_('scrubConfigKeys: no Config tab'); return 0; }
+  const vals=sh.getDataRange().getValues(); let n=0;
+  for(let i=0;i<vals.length;i++){ const k=String(vals[i][0]||'').trim(); if(!k) continue;
+    if(isSecretKey_(k) && String(vals[i][1]||'').trim()!==''){ sh.getRange(i+1,2).clearContent(); n++; } }
+  log_('scrubConfigKeys: blanked '+n+' secret value(s) — keys must be in Script Properties');
+  return n;
+}
+// Asserts that nothing on this public workbook is private. Reads the same tabs the world can.
+function privacyAudit(){
+  const ss=ss_(); const fails=[], notes=[];
+  ss.getSheets().forEach(sh=>{ const n=sh.getName(); if(PUBLIC_TABS.indexOf(n)<0) fails.push('tab not on the public whitelist: "'+n+'"'); });
+  const cfg=ss.getSheetByName(TAB.config);
+  if(cfg) cfg.getDataRange().getValues().forEach(r=>{ const k=String(r[0]||'').trim(); if(k && isSecretKey_(k) && String(r[1]||'').trim()!=='') fails.push('Config holds a value for '+k); });
+  const pat=/api_key=(?!\*\*\*)[^&\s"']{8,}|Bearer\s+(?!\*\*\*)\S{8,}|101-\d{3}-\d{7,}-\d{3}/;
+  [TAB.log, TAB.diag].forEach(n=>{ const sh=ss.getSheetByName(n); if(!sh||sh.getLastRow()<1) return;
+    const v=sh.getDataRange().getValues(); let hits=0; v.forEach(r=>r.forEach(c=>{ if(pat.test(String(c))) hits++; }));
+    if(hits) fails.push(n+' contains '+hits+' credential-looking cell(s) — run trimLog_() after fixing the source'); });
+  const rl=ss.getSheetByName(TAB.ratiosLatest);
+  if(rl && rl.getLastRow()>1 && rl.getRange(2,1,rl.getLastRow()-1,1).getValues().some(r=>String(r[0]).trim()==='Book')) fails.push('RatiosLatest has a "Book" group');
+  if(RATIO_GROUPS.some(g=>g[0]==='Book')) fails.push('RATIO_GROUPS has a "Book" group');
+  SECRET_KEYS.slice(0,2).forEach(k=>{ if(!PropertiesService.getScriptProperties().getProperty(k)) notes.push(k+' is not set in Script Properties'); });
+  const verdict = fails.length ? 'FAIL' : 'PASS';
+  log_('privacyAudit: '+verdict+(fails.length?' — '+fails.join(' | '):'')+(notes.length?' | note: '+notes.join('; '):''));
+  return verdict+(fails.length?'\n'+fails.join('\n'):'');
+}
+// Per-series coverage for the Health tab (and the page's Methodology section).
+function writeHealthTab_(staleIds){
+  const src=sheet_(HIST); const lastRow=src.getLastRow(), lastCol=src.getLastColumn(); if(lastRow<2) return;
+  const vals=src.getRange(1,1,lastRow,lastCol).getValues(); const header=vals[0];
+  const dates=[]; const seen={}; let dups=0;
+  for(let r=1;r<vals.length;r++){ const d=vals[r][0]; if(!(d instanceof Date)) continue; const k=ymd_(d); if(seen[k]) dups++; seen[k]=1; dates.push(d); }
+  const out=[['series_id','first','last','obs','coverage_pct','cadence_days','status']];
+  const stale={}; (staleIds||[]).forEach(id=>stale[id]=1);
+  for(let c=1;c<lastCol;c++){ const id=header[c]; let first=null,last=null,n=0,prev=null; const gaps=[];
+    for(let r=1;r<vals.length;r++){ const v=vals[r][c], d=vals[r][0]; if(!(d instanceof Date)||!isNum(v)) continue; n++; if(!first) first=d; last=d; if(prev) gaps.push((d-prev)/86400000); prev=d; }
+    if(!n){ out.push([id,'','',0,0,'','MISSING']); continue; }
+    gaps.sort((a,b)=>a-b); const cad=gaps.length?gaps[Math.floor(gaps.length/2)]:1;
+    const span=Math.max(1,(last-first)/86400000); const expected=cad<=3?span*5/7:span/cad; const cov=Math.min(100,Math.round(n/expected*1000)/10);
+    const st=stale[id]?'LATE':(cad>=20?'MONTHLY':(cad>=5?'WEEKLY':'FRESH'));
+    out.push([id,ymd_(first),ymd_(last),n,cov,cad,st]); }
+  const sh=ss_().getSheetByName(HEALTH_TAB)||ss_().insertSheet(HEALTH_TAB);
+  sh.clearContents(); sh.getRange(1,1,out.length,out[0].length).setValues(out); sh.getRange(1,1,1,out[0].length).setFontWeight('bold');
+  sh.getRange(1,9,2,1).setValues([['duplicate_dates'],[dups]]); sh.getRange(1,10,2,1).setValues([['rows'],[dates.length]]);
+  sh.getRange(1,11,2,1).setNumberFormat('@').setValues([['checked_at'],[Utilities.formatDate(new Date(),TZ,'yyyy-MM-dd HH:mm')]]);
+}
+// Asserts the sheet→page contract. Run from the editor; also called by dailyUpdate after finalize.
+function selfTest(){
+  const fails=[];
+  const st=ss_().getSheetByName('DashStats'); const ds=ss_().getSheetByName('DashSeries');
+  if(!st||st.getLastRow()<2) fails.push('DashStats empty'); else{
+    const hdr=st.getRange(1,1,1,16).getValues()[0].join(',');
+    const want='series_id,label,panel,asof,last,prev,d1,d1w,d1m,ytd,pct1y,hi1y,lo1y,pos1y,n,mode';
+    if(hdr!==want) fails.push('DashStats A:P header changed: '+hdr);
+    const ids=st.getRange(2,1,st.getLastRow()-1,3).getValues();
+    const legacy=[]; DASH_PANELS.forEach(([,items])=>items.forEach(it=>legacy.push(it[0])));
+    legacy.forEach((id,i)=>{ if(!ids[i]||String(ids[i][0])!==id) fails.push('DashStats row '+(i+2)+' expected '+id+' got '+(ids[i]?ids[i][0]:'—')); });
+    ids.slice(legacy.length).forEach((r,i)=>{ if(String(r[2]).indexOf('PAGE:')!==0) fails.push('DashStats row '+(legacy.length+i+2)+' is not PAGE:*'); });
+    const ext=st.getRange(1,DASH_EXT_COL,1,5).getValues()[0].join(',');
+    if(ext!=='v1m,v1y,pct3y,cadence,status') fails.push('DashStats extension header: '+ext);
+  }
+  if(!ds||ds.getLastRow()<2) fails.push('DashSeries empty'); else{
+    const hdr=ds.getRange(1,1,1,9).getValues()[0].join(',');
+    const want=['Date'].concat(DASH_SERIES.map(s=>s[0])).join(',');
+    if(hdr!==want) fails.push('DashSeries A:I header changed: '+hdr);
+  }
+  const meta=ss_().getSheetByName(META_TAB);
+  if(!meta) fails.push('Meta tab missing'); else{ const m={}; meta.getDataRange().getValues().forEach(r=>m[String(r[0])]=String(r[1]));
+    if(m.schema_version!==String(SCHEMA_VERSION)) fails.push('Meta.schema_version='+m.schema_version); }
+  ['Notes'].forEach(n=>{ if(!ss_().getSheetByName(n)) fails.push(n+' tab missing'); });
+  const verdict=fails.length?'FAIL':'PASS';
+  log_('selfTest: '+verdict+(fails.length?' — '+fails.join(' | '):''));
+  return verdict+(fails.length?'\n'+fails.join('\n'):'');
+}
+
 function healthCheck(){
   const out = [];
   const cur = k => { const v = String(getCfg_(k,'')||''); return v || '(empty)'; };
@@ -1507,6 +1711,7 @@ function healthCheck(){
     });
     out.push(ok+' series current, '+stale.length+' stale');
     stale.forEach(s => out.push('   STALE  '+s));
+    try{ writeHealthTab_(stale.map(s=>s.split(' ')[0])); out.push('Health tab written'); }catch(e){ out.push('Health tab ERROR '+e.message); }
     if(!stale.length) out.push('   every series is within its own publication cadence');
   }
 

@@ -1,7 +1,19 @@
 /**
- * Dashboard.gs — Markets Brief Data (7 Sep 2026)
- * ===============================================
- * Adds two things to the Markets Brief Data sheet:
+ * Dashboard.gs — Markets Brief Data (v5, 18 Sep 2026)
+ * ====================================================
+ * v5: the Sheet is public and a static web page (docs/index.html) reads DashStats, DashSeries,
+ * Live, RatiosLatest, Notes, Meta and Series through the gviz CSV endpoint. The Sheet's own
+ * Dashboard tab is FROZEN — nothing new is added to it — and the contract it depends on is
+ * immutable:
+ *     DashStats A:P and Q:BX (s1..s60), rows 2..(1+panel rows) in DASH_PANELS order; CA:CD helper
+ *     DashSeries A:I
+ * Everything the page needs beyond that is an EXTENSION: DashStats rows after the panel rows
+ * (panel = "PAGE:<group>", from PAGE_EXTRA) and columns from DASH_EXT_COL onward; DashSeries
+ * columns 10+ (DASH_SERIES_EXTRA). selfTest() in Code.gs asserts all of this.
+ * The IBKR Log / Runs ingest that used to live here is gone: personal positions never touch
+ * a public workbook.
+ *
+ * Adds to the Markets Brief Data sheet:
  *
  *   1. DASHBOARD  — a Bloomberg-density "at a glance" first tab built from the data already in the
  *      sheet (MacroData (2Y) / MacroHistory, RatiosLatest, Ratios). Light theme, terminal semantics
@@ -14,22 +26,15 @@
  *          USDSGD · ranked rotation bars driven by a timeframe selector (1D/5D/20D/60D/YTD)
  *        • full-size rotation heatmap: all 38 ETF/SPY ratios in Evan's eight groups
  *
- *   2. IBKR LOG   — the brief's per-run CSVs (Markets Brief Log folder) ingested into
- *        • Runs      one row per run (account level, wide — the CSV row as-is)
- *        • IBKR Log  one row per POSITION per run (long) with qty/weight change vs the previous
- *                    run and a status (NEW / ADD / HELD / TRIM / EXIT) — backtest-ready
- *      This replaces ingestLogRows(), which used to drop run rows into the script's own Log tab.
- *
- * SETUP: in the Apps Script editor, File → + → Script, name it "Dashboard", paste this file.
- *        Code.gs must already be present (this file uses its helpers). Then run buildDashboard() once.
- *        dailyUpdate() calls refreshDashboard() and ingestRunLogs() automatically.
+ * SETUP: deployed with clasp alongside Code.gs (this file uses its helpers). Run buildDashboard() once.
+ *        dailyUpdate() calls refreshDashboard() automatically.
  *
  * Helper tabs (kept VISIBLE, parked last, grey — charts cannot read hidden sheets):
  *   DashStats (per-row stats + 60-obs spark data + ranked-rotation helper), DashSeries (1Y chart data).
  */
 
 // ---------------------------------------------------------------- config
-const DASH = { tab:'Dashboard', stats:'DashStats', series:'DashSeries', runs:'Runs', ibkr:'IBKR Log' };
+const DASH = { tab:'Dashboard', stats:'DashStats', series:'DashSeries' };
 const DASH_SPARK_N = 60;
 const DASH_TF = ['1D','5D','20D','60D','YTD'];          // rotation selector options (RatiosLatest cols E..I)
 const DC = {                                             // palette — light surface, terminal semantics
@@ -86,6 +91,61 @@ const DASH_SERIES = [
   ['Net liquidity $bn','Net_Liquidity',0.001], ['3M SORA','SORA_3M',1], ['Fed funds','DFF',1], ['USDSGD','DEXSIUS',1]
 ];
 
+// ---------------------------------------------------------------- v5: page extension zone
+// DashStats extension columns start here (CE). Columns BY:BZ are left blank and CA:CD stays the
+// rotation helper, so nothing in dashRender_ moves.
+const DASH_EXT_COL = 83;
+const DASH_EXT_HEADER = ['v1m','v1y','pct3y','cadence','status'];
+// Page-only rows, appended AFTER the DASH_PANELS rows. [series_id, label, group, mode, decimals, scale, transform]
+// group is the page's grouping key; the Sheet tab never reads these rows.
+const PAGE_EXTRA = [
+  // US par + real curve (tenors not on the Sheet tab)
+  ['DGS1MO','UST 1m','rates','bp',2], ['DGS6MO','UST 6m','rates','bp',2], ['DGS1','UST 1y','rates','bp',2],
+  ['DGS3','UST 3y','rates','bp',2], ['DGS7','UST 7y','rates','bp',2], ['DGS20','UST 20y','rates','bp',2],
+  ['DFII5','5y real (TIPS)','inflation','bp',2], ['DFII7','7y real (TIPS)','inflation','bp',2],
+  ['DFII20','20y real (TIPS)','inflation','bp',2], ['DFII30','30y real (TIPS)','inflation','bp',2],
+  ['T5YIE','5y breakeven','inflation','bp',2], ['BE_5Y','5y BE (calc)','inflation','bp',2],
+  ['BE_10Y_CALC','10y BE (calc)','inflation','bp',2], ['BE_30Y','30y BE (calc)','inflation','bp',2],
+  // curve spreads
+  ['US_5Y_30Y','5s30s','rates','bp',2], ['US_10Y_30Y','10s30s','rates','bp',2],
+  ['US_2Y_30Y','2s30s','rates','bp',2], ['US_20Y_30Y','20s30s','rates','bp',2],
+  // policy
+  ['DFEDTARL','Target range lower','policy','bp',2],
+  ['POLICY_PROXY_6M','Policy proxy 6m − funds','policy','bp',2], ['POLICY_PROXY_1Y','Policy proxy 1y − funds','policy','bp',2],
+  // credit ladder
+  ['BAMLC0A1CAAA','AAA OAS','credit','bp',2], ['BAMLC0A2CAA','AA OAS','credit','bp',2], ['BAMLC0A3CA','A OAS','credit','bp',2],
+  ['BAMLC0A4CBBB','BBB OAS','credit','bp',2], ['BAMLC1A0C13Y','IG 1-3y OAS','credit','bp',2],
+  ['BAMLH0A1HYBB','BB OAS','credit','bp',2], ['BAMLH0A2HYB','B OAS','credit','bp',2], ['BAMLH0A3HYC','CCC & lower OAS','credit','bp',2],
+  ['BAMLHE00EHYIOAS','Euro HY OAS','credit','bp',2], ['BAMLEMCBPIOAS','EM corp OAS','credit','bp',2],
+  ['BAMLH0A0HYM2EY','HY effective yield','credit','bp',2], ['BAMLC0A0CMEY','IG effective yield','credit','bp',2],
+  // global govies (monthly OECD) + spreads to US
+  ['G10Y_US','US 10y (OECD)','global','bp',2], ['G10Y_DE','Germany 10y','global','bp',2], ['G10Y_GB','UK 10y','global','bp',2],
+  ['G10Y_JP','Japan 10y','global','bp',2], ['G10Y_AU','Australia 10y','global','bp',2], ['G10Y_CA','Canada 10y','global','bp',2],
+  ['G10Y_IT','Italy 10y','global','bp',2], ['G10Y_FR','France 10y','global','bp',2], ['G10Y_CH','Switzerland 10y','global','bp',2],
+  ['G10Y_ZA','South Africa 10y','global','bp',2],
+  ['G10Y_DE_US','Bund − UST','global','bp',2], ['G10Y_GB_US','Gilt − UST','global','bp',2], ['G10Y_JP_US','JGB − UST','global','bp',2],
+  ['G10Y_AU_US','ACGB − UST','global','bp',2], ['G10Y_CA_US','Canada − UST','global','bp',2], ['G10Y_IT_US','BTP − UST','global','bp',2],
+  ['G10Y_FR_US','OAT − UST','global','bp',2], ['G10Y_CH_US','Swiss − UST','global','bp',2], ['G10Y_ZA_US','SAGB − UST','global','bp',2],
+  // macro
+  ['CPILFESL','Core CPI YoY %','macro','abs',1,1,'yoy'],
+  // fx / sg extras
+  ['DEXSDUS','USDSEK','fx','pct',4], ['USDSGD_OANDA','USDSGD (OANDA)','fx','pct',4],
+  ['SORA_INDEX','SORA index','sg','pct',4], ['SORA_VOL','SORA volume','sg','pct',0],
+];
+// Series ids whose 3-year percentile the page shows (credit ladder). Read from MacroData (5Y).
+const PAGE_PCT3Y_IDS = ['BAMLH0A0HYM2','BAMLC0A0CM','HY_IG_OAS','BAMLC0A1CAAA','BAMLC0A2CAA','BAMLC0A3CA','BAMLC0A4CBBB','BAMLC1A0C13Y',
+  'BAMLH0A1HYBB','BAMLH0A2HYB','BAMLH0A3HYC','BAMLHE00EHYIOAS','BAMLEMCBPIOAS','VIXCLS','DGS10','DFII10','T10YIE','US_10Y_2Y'];
+// DashSeries columns 10+ (1Y, forward-filled). [header, series_id, scale]
+const DASH_SERIES_EXTRA = [
+  ['UST 2y','DGS2',1], ['UST 5y','DGS5',1], ['UST 30y','DGS30',1], ['5y real','DFII5',1], ['10y real','DFII10',1], ['30y real','DFII30',1],
+  ['5y BE','T5YIE',1], ['10y BE','T10YIE',1], ['5s30s','US_5Y_30Y',1], ['10s30s','US_10Y_30Y',1],
+  ['IG OAS','BAMLC0A0CM',1], ['BBB OAS','BAMLC0A4CBBB',1], ['BB OAS','BAMLH0A1HYBB',1], ['CCC OAS','BAMLH0A3HYC',1],
+  ['DXY','DXY',1], ['Target upper','DFEDTARU',1], ['Fed balance sheet $bn','WALCL',0.001], ['Gold','GOLD',1], ['Bitcoin','BTCUSD',1],
+  ['WTI','DCOILWTICO',1], ['Copper/Gold x1000','CopperGold',1000], ['SGS 10y','SGS_10Y',1], ['6M T-bill','TBILL_6M',1], ['STI','STI',1],
+  ['USDJPY','DEXJPUS',1], ['EURUSD','DEXUSEU',1], ['Policy proxy 6m','POLICY_PROXY_6M',1],
+  ['G10Y US','G10Y_US',1], ['G10Y DE','G10Y_DE',1], ['G10Y GB','G10Y_GB',1], ['G10Y JP','G10Y_JP',1]
+];
+
 // ---------------------------------------------------------------- public entry points
 function buildDashboard(){ dashRender_(true); log_('buildDashboard: done'); }
 function refreshDashboard(){
@@ -94,8 +154,8 @@ function refreshDashboard(){
 }
 
 // ---------------------------------------------------------------- data → stats
-function dashLoadHistory_(){
-  let sh = ss_().getSheetByName('MacroData (2Y)');
+function dashLoadHistory_(tabName){
+  let sh = ss_().getSheetByName(tabName || 'MacroData (2Y)');
   if(!sh || sh.getLastRow() < 30) sh = sheet_(HIST);
   const lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
   const cols = {};
@@ -133,8 +193,12 @@ function dashStats_(ptsIn, mode, scale, transform){
   const hi = Math.max.apply(null,w), lo = Math.min.apply(null,w);
   const pct = w.filter(x=>x<=last[1]).length/w.length*100;
   const chg = old => { if(!isNum(old)) return ''; if(mode==='bp') return (last[1]-old)*100; if(mode==='pct') return old!==0?(last[1]/old-1):''; return last[1]-old; };
+  // v5: the levels themselves, for the page's today / 1m / 1y comparisons
+  const j1y = dashIdxAtOrBefore_(pts,new Date(asof.getTime()-365*86400000));
+  const v1y = (j1y>=0 && (asof-pts[j1y][0]) <= 400*86400000) ? pts[j1y][1] : null;
   return { asof:asof, last:last[1], prev:prev?prev[1]:'', d1:chg(prev?prev[1]:null), d1w:chg(v1w), d1m:chg(v1m),
            ytd:chg(ytdBase), pct:pct, hi:hi, lo:lo, pos:(hi>lo)?(last[1]-lo)/(hi-lo):0.5, n:n,
+           v1m:isNum(v1m)?v1m:'', v1y:isNum(v1y)?v1y:'',
            cadence:spacing,                                   // v4.2.1: needed by dashLate_
            spark:pts.slice(-DASH_SPARK_N).map(p=>p[1]) };
 }
@@ -163,30 +227,52 @@ const DASH_STALE_DAYS = 3;
 function dashWriteStats_(cols){
   const rows=[], header=['series_id','label','panel','asof','last','prev','d1','d1w','d1m','ytd','pct1y','hi1y','lo1y','pos1y','n','mode'];
   for(let k=0;k<DASH_SPARK_N;k++) header.push('s'+(k+1));
-  const statsById={};
-  DASH_PANELS.forEach(([panel,items])=>items.forEach(([id,label,mode,dec,scale,transform])=>{
-    const s=dashStats_(cols[id],mode,scale,transform); statsById[id]=s;
+  // v5: legacy rows first, in DASH_PANELS order, then the page-only rows. One loop, one contract.
+  const allItems=[];
+  DASH_PANELS.forEach(([panel,items])=>items.forEach(it=>allItems.push([panel].concat(it))));
+  PAGE_EXTRA.forEach(([id,label,group,mode,dec,scale,transform])=>allItems.push(['PAGE:'+group,id,label,mode,dec,scale,transform]));
+  const statsById={}, ext=[];
+  allItems.forEach(([panel,id,label,mode,dec,scale,transform])=>{
+    const s=dashStats_(cols[id],mode,scale,transform); if(panel.indexOf('PAGE:')!==0 || !statsById[id]) statsById[id]=s;
     const r=[id,label,panel, s?ymd_(s.asof):'', s?s.last:'', s?s.prev:'', s?s.d1:'', s?s.d1w:'', s?s.d1m:'', s?s.ytd:'',
              s?s.pct:'', s?s.hi:'', s?s.lo:'', s?s.pos:'', s?s.n:0, mode];
     const sp = s ? s.spark : []; const pad = DASH_SPARK_N - sp.length;
     for(let k=0;k<DASH_SPARK_N;k++) r.push(k<pad ? '' : sp[k-pad]);
-    rows.push(r); }));
+    rows.push(r); ext.push({id:id, s:s}); });
+  // v5 extension columns: v1m, v1y, pct3y (credit ids, from the 5Y mirror), cadence, status
+  const asofAll = ext.map(e=>e.s&&e.s.asof).filter(Boolean).sort((a,b)=>b-a)[0];
+  let cols5 = null;
+  const pct3y = id => { if(PAGE_PCT3Y_IDS.indexOf(id)<0) return '';
+    if(!cols5){ try{ cols5 = dashLoadHistory_('MacroData (5Y)'); }catch(e){ cols5 = {}; } }
+    const pts=(cols5[id]||[]); if(!pts.length) return ''; const last=pts[pts.length-1];
+    const cut=new Date(last[0].getTime()-3*365*86400000); const w=pts.filter(p=>p[0]>=cut).map(p=>p[1]); if(!w.length) return '';
+    return Math.round(w.filter(x=>x<=last[1]).length/w.length*1000)/10; };
+  const extRows = ext.map(({id,s})=>{
+    if(!s) return ['','','','', 'MISSING'];
+    const cad = s.cadence||1;
+    const behind = !!(asofAll && Math.round((asofAll - s.asof)/86400000) > DASH_STALE_DAYS);
+    const status = dashLate_(id,s) ? 'LATE' : (cad>=20 ? 'MONTHLY' : (cad>=5 ? 'WEEKLY' : (behind ? 'BEHIND' : 'FRESH')));
+    return [s.v1m, s.v1y, pct3y(id), Math.round(cad*10)/10, status]; });
   const sh = ss_().getSheetByName(DASH.stats)||ss_().insertSheet(DASH.stats);
   sh.getRange(1,1,sh.getMaxRows(),Math.max(1,DASH_SPARK_N+16)).clearContent();
+  sh.getRange(1,DASH_EXT_COL,sh.getMaxRows(),DASH_EXT_HEADER.length).clearContent();
   sh.getRange(1,1,1,header.length).setValues([header]).setFontWeight('bold');
   sh.getRange(2,1,rows.length,header.length).setValues(rows);
   sh.getRange(2,4,rows.length,1).setNumberFormat('yyyy-mm-dd');
+  sh.getRange(1,DASH_EXT_COL,1,DASH_EXT_HEADER.length).setValues([DASH_EXT_HEADER]).setFontWeight('bold');
+  sh.getRange(2,DASH_EXT_COL,extRows.length,DASH_EXT_HEADER.length).setValues(extRows);
   return statsById;
 }
 // DashSeries: Date + DASH_SERIES columns, last 365 days, forward-filled on the union of dates.
 function dashWriteSeries_(cols){
   const cutoff = new Date(Date.now()-366*86400000);
-  const dateSet={}; DASH_SERIES.forEach(([,id])=>(cols[id]||[]).forEach(p=>{ if(p[0]>=cutoff) dateSet[ymd_(p[0])]=p[0]; }));
+  const ALL = DASH_SERIES.concat(DASH_SERIES_EXTRA);      // v5: legacy columns 2..9 first, page columns after
+  const dateSet={}; ALL.forEach(([,id])=>(cols[id]||[]).forEach(p=>{ if(p[0]>=cutoff) dateSet[ymd_(p[0])]=p[0]; }));
   const dates = Object.keys(dateSet).sort().map(k=>dateSet[k]);
-  const out=[['Date'].concat(DASH_SERIES.map(s=>s[0]))];
-  const ptrs = DASH_SERIES.map(()=>0), lastVal = DASH_SERIES.map(()=>'');
+  const out=[['Date'].concat(ALL.map(s=>s[0]))];
+  const ptrs = ALL.map(()=>0), lastVal = ALL.map(()=>'');
   dates.forEach(d=>{ const row=[d];
-    DASH_SERIES.forEach(([,id,scale],i)=>{ const pts=cols[id]||[]; while(ptrs[i]<pts.length && pts[ptrs[i]][0]<=d){ lastVal[i]=pts[ptrs[i]][1]*(scale||1); ptrs[i]++; } row.push(lastVal[i]); });
+    ALL.forEach(([,id,scale],i)=>{ const pts=cols[id]||[]; while(ptrs[i]<pts.length && pts[ptrs[i]][0]<=d){ lastVal[i]=pts[ptrs[i]][1]*(scale||1); ptrs[i]++; } row.push(lastVal[i]); });
     out.push(row); });
   const sh = ss_().getSheetByName(DASH.series)||ss_().insertSheet(DASH.series);
   sh.clearContents();
@@ -333,6 +419,7 @@ function dashRender_(build){
     sh.setTabColor(DC.amber);
   }
   try{ if(typeof liveWritePanelCols_ === 'function') liveWritePanelCols_(); }catch(e){ diag_('dashRender_','live cols','ERROR',e.message); }
+  try{ writeMeta_(); }catch(e){ diag_('dashRender_','meta','ERROR',e.message); }
 }
 function dashFindSpec_(id){ for(const [,items] of DASH_PANELS) for(const it of items) if(it[0]===id) return it; return null; }
 function dashColLetter_(n){ let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26; } return s; }
@@ -482,58 +569,7 @@ function dashCharts_(sh, ds, st, N){                 // N = DashSeries rows incl
   sh.insertChart(rb.build());
 }
 
-// ---------------------------------------------------------------- IBKR run-log ingest (backtest tables)
-const IBKR_COLS = ['run_date_sgt','data_as_of_us_close','ticker','qty','avg_cost','close','weight_pct','mkt_value_usd','unreal_pnl_pct',
-                   'qty_chg','weight_chg_pp','status','flag','nlv_usd','nlv_sgd','usdsgd','cash_pct','acct_1d_pct','acct_mtd_pct','acct_ytd_pct','source_file'];
-function ingestRunLogs(){
-  const folders=DriveApp.getFoldersByName(LOG_FOLDER_NAME); if(!folders.hasNext()){ log_('ingestRunLogs: folder "'+LOG_FOLDER_NAME+'" not found'); return; }
-  const folder=folders.next(); const files=folder.getFilesByType(MimeType.CSV);
-  const runs={}; const colOrder=[];
-  while(files.hasNext()){ const f=files.next(); let rows; try{ rows=Utilities.parseCsv(f.getBlob().getDataAsString()); }catch(e){ diag_('ingestRunLogs',f.getName(),'ERROR','parse: '+e.message); continue; }
-    if(!rows.length || String(rows[0][0]).trim()!=='run_date_sgt'){ diag_('ingestRunLogs',f.getName(),'SKIP','no run_date_sgt header'); continue; }
-    const hdr=rows[0].map(h=>String(h).trim()); hdr.forEach(h=>{ if(h && colOrder.indexOf(h)<0) colOrder.push(h); });
-    for(let i=1;i<rows.length;i++){ const key=String(rows[i][0]).trim(); if(!key) continue;
-      const obj={_file:f.getName()}; hdr.forEach((h,j)=>{ if(h) obj[h]=rows[i][j]; }); runs[key]=obj; } }   // later file wins on a duplicate run_date
-  const keys=Object.keys(runs).sort();
-  if(!keys.length){ log_('ingestRunLogs: no run rows found'); return; }
-
-  // ---- Runs tab (wide, one row per run)
-  const rs = ss_().getSheetByName(DASH.runs)||ss_().insertSheet(DASH.runs); rs.clearContents();
-  const wide=[colOrder.concat(['source_file'])]; keys.forEach(k=>wide.push(colOrder.map(c=>runs[k][c]!=null?runs[k][c]:'').concat([runs[k]._file])));
-  rs.getRange(1,1,wide.length,wide[0].length).setValues(wide); rs.getRange(1,1,1,wide[0].length).setFontWeight('bold'); rs.setFrozenRows(1);
-
-  // ---- IBKR Log tab (long, one row per position per run)
-  const long=[IBKR_COLS]; let prevPos={}; const num=v=>{ const x=parseFloat(String(v).replace(/[,$%]/g,'')); return isFinite(x)?x:''; };
-  keys.forEach(k=>{ const R=runs[k]; const pos=dashParsePositions_(R.positions_json);
-    const flagsRed=String(R.flags_red||''), flagsAmber=String(R.flags_amber||''); const seen={};
-    Object.keys(pos).sort().forEach(t=>{ const p=pos[t]; const qty=num(p.qty), avg=num(p.avg_cost), close=num(p.close), w=num(p.weight_pct);
-      const prev=prevPos[t]; const qchg = prev ? (isNum(qty)&&isNum(prev.qty)?qty-prev.qty:'') : qty;
-      const status = !prev ? 'NEW' : (!isNum(qchg)||qchg===0 ? 'HELD' : (qchg>0?'ADD':'TRIM'));
-      const flag = flagsRed.indexOf(t)>=0 ? 'RED' : (flagsAmber.indexOf(t)>=0 ? 'AMBER' : '');
-      long.push([k, R.data_as_of_us_close||'', t, qty, avg, close, w, (isNum(qty)&&isNum(close))?qty*close:'', (isNum(avg)&&avg!==0&&isNum(close))?(close/avg-1):'',
-                 qchg, (prev&&isNum(w)&&isNum(prev.w))?w-prev.w:(isNum(w)?w:''), status, flag,
-                 num(R.nlv_usd), num(R.nlv_sgd), num(R.usdsgd), num(R.cash_pct), num(R.acct_1d_pct), num(R.acct_mtd_pct), num(R.acct_ytd_pct), R._file]);
-      seen[t]=true; });
-    Object.keys(prevPos).forEach(t=>{ if(seen[t]) return; const prev=prevPos[t];      // position gone → synthetic EXIT row
-      long.push([k, R.data_as_of_us_close||'', t, 0, prev.avg, '', 0, 0, '', isNum(prev.qty)?-prev.qty:'', isNum(prev.w)?-prev.w:'', 'EXIT', '',
-                 num(R.nlv_usd), num(R.nlv_sgd), num(R.usdsgd), num(R.cash_pct), num(R.acct_1d_pct), num(R.acct_mtd_pct), num(R.acct_ytd_pct), R._file]); });
-    const next={}; Object.keys(pos).forEach(t=>{ next[t]={qty:num(pos[t].qty), avg:num(pos[t].avg_cost), w:num(pos[t].weight_pct)}; }); prevPos=next; });
-  const ls = ss_().getSheetByName(DASH.ibkr)||ss_().insertSheet(DASH.ibkr); ls.clearContents();
-  ls.getRange(1,1,long.length,IBKR_COLS.length).setValues(long); ls.getRange(1,1,1,IBKR_COLS.length).setFontWeight('bold'); ls.setFrozenRows(1);
-  if(long.length>1){ ls.getRange(2,9,long.length-1,1).setNumberFormat('+0.0%;-0.0%;0.0%'); ls.getRange(2,7,long.length-1,1).setNumberFormat('0.0'); }
-  log_('ingestRunLogs: '+keys.length+' run(s) → Runs; '+(long.length-1)+' position row(s) → IBKR Log');
-}
-// positions_json arrives CSV-quoted; tolerate doubled quotes, single quotes, or a stringified object.
-function dashParsePositions_(raw){
-  if(!raw) return {}; let s=String(raw).trim(); if(!s) return {};
-  const tries=[s, s.replace(/""/g,'"'), s.replace(/'/g,'"')];
-  for(const t of tries){ try{ const o=JSON.parse(t); if(o && typeof o==='object') return o; }catch(e){} }
-  diag_('ingestRunLogs','positions_json','WARN','could not parse: '+s.slice(0,120)); return {};
-}
-
-// ---------------------------------------------------------------- chart diagnostics
-// Inserts four charts on a "ChartTest" tab from DashSeries A:C, each adding one layer of the
-// production styling. Tell me the first one that renders BLANK and I will know which option breaks it.
+// ---------------------------------------------------------------- debug
 function debugCharts(){
   const ss=ss_(); const ds=ss.getSheetByName(DASH.series); if(!ds||ds.getLastRow()<3) throw new Error('DashSeries is empty — run refreshDashboard() first');
   const N=ds.getLastRow();

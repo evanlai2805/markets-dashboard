@@ -49,11 +49,6 @@
  *   Caveats: an installable open trigger fires only for the account that installed it,
  *   does not fire in the Sheets mobile app, and lands 1-3 seconds after the sheet opens.
  *
- * IBKR
- *   Not reachable from Apps Script. IBKR's Client Portal API needs an authenticated
- *   gateway session that Apps Script has no way to hold. IBKR prices reach you through
- *   the brief's own connector at 07:00, not through this sheet.
- *
  * SETUP
  *   1. Paste this file, save.
  *   2. Run  refreshLive()  once and authorise.

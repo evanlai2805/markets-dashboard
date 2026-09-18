@@ -4,8 +4,13 @@ A daily macro and cross-asset monitor built in Google Sheets and Apps Script. 57
 US rates, Fed liquidity, credit, FX, commodities and the Singapore rates complex, pulled from
 FRED, OANDA and MAS, with a 10-minute intraday quote layer over 35 instruments.
 
-**[→ Live dashboard](https://docs.google.com/spreadsheets/d/e/2PACX-1vRylEVPn4EtaBEvDJ0yUfUljHOsDcZDUP5CmPcLytWtl5xr36oJ1VODV3stjziieIn_z7-yk8jfsSEu/pubhtml?gid=128131033&single=true)** — the Dashboard tab, republished automatically as the sheet refreshes.
-[Static snapshot](https://docs.google.com/spreadsheets/d/1xaAF9PcQm51QEUD-6nGWGHNSrRzK3AVyA1PN_Rk4YY4/edit?usp=sharing) (14 Sep 2026) if the live page is unavailable.
+**[→ Live monitor](https://evanlai2805.github.io/markets-dashboard/)** — a static page (Board · Rates · Credit · FX · Commodities · Equities · Macro · Methodology) that reads the public sheet directly.
+[Data sheet](https://docs.google.com/spreadsheets/d/1xaAF9PcQm51QEUD-6nGWGHNSrRzK3AVyA1PN_Rk4YY4/edit?usp=sharing) — the engine and database behind it, view-only.
+
+**v5 (Sep 2026):** the sheet became a public data engine and the presentation moved to `docs/index.html`.
+The machine owns the numbers; the analyst owns the interpretation (a hand-edited `Notes` tab). See
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md) for deployment, cut-over and rollback, and `tests/` for the
+sheet→page contract tests.
 
 ![Dashboard](docs/dashboard.png)
 
@@ -48,9 +53,12 @@ GOOGLEFINANCE ──► Ratios (ETF/SPY, 2015→) ──► RatiosLatest ──�
 
 | Layer | File | What it does |
 |---|---|---|
-| Ingest | `apps-script/code.gs` | Series registry, per-source fetchers, windowed upsert into a single daily history, rolling mirrors, health checks |
-| Presentation | `apps-script/dashboard.gs` | Panel layout, statistics (deltas, percentiles, 52-week range, sparkline trends), conditional formatting, charts |
+| Ingest | `apps-script/code.gs` | Series registry (90 series incl. the full UST/TIPS curves, 12 OAS tiers, 10 OECD 10y yields), per-source fetchers, windowed upsert into a single daily history, computed columns (curve spreads, breakevens, policy proxy, global spreads, DXY, net liquidity), rolling mirrors, health / privacy / contract checks |
+| Stats | `apps-script/dashboard.gs` | DashStats (deltas, percentiles, 52-week range, 60-obs sparklines, 1m/1y levels, 3y percentiles, status) and DashSeries (1Y forward-filled) — the sheet→page contract; the frozen Sheet Dashboard tab |
 | Intraday | `apps-script/live.gs` | 35 OANDA instruments every 10 minutes, each compared against its own previous completed daily candle |
+| Page | `docs/index.html` | Zero-dependency static page: reads DashStats / DashSeries / Live / RatiosLatest / Notes / Meta / Series via the sheet's gviz CSV endpoint; all charts inline SVG, single-axis; light/dark; phone-safe |
+| Tests | `tests/contract.test.mjs` | `node --test tests/contract.test.mjs` against the live sheet (or `FIXTURES=fixtures`) — legacy header/row contract, schema version, required series, no secrets on the public workbook |
+| Fixtures | `fixtures/` | CSVs in the exact v5 layout for offline page development; `build_fixtures.py` rebuilds them from a workbook export plus FRED |
 
 `data/series-registry.csv` is the config that drives ingest — one row per series, mapping a
 `series_id` to its source, source identifier and field. Adding a series is a row, not a code change.
@@ -108,11 +116,14 @@ Requires a FRED API key, an OANDA practice or live API key, and (for the Singapo
 API gateway key. All three are read from Apps Script Script Properties, never from the sheet.
 
 ```
-1. Create a Sheet, Extensions → Apps Script, paste the three .gs files
-2. Script Properties: FRED_API_KEY, OANDA_API_KEY, MAS_API_KEY
-3. Run setupSheets(), then paste series-registry.csv into the Series tab
-4. Run firstRun()  — setup, backfill, install triggers
-5. Run installLiveTriggers() for the intraday layer
+1. Create a Sheet, Extensions → Apps Script; deploy with clasp (apps-script/.clasp.json → clasp push)
+   or paste the three .gs files
+2. Script Properties: FRED_API_KEY, OANDA_API_KEY, OANDA_ACCOUNT_ID, MAS_API_KEY
+   (never in the Config tab — the sheet is public)
+3. Run setupSheets()  — seeds Series from the registry, creates Notes/Meta
+4. Run firstRun()  — setup, backfill, install triggers; installLiveTriggers() for the intraday layer
+5. Run selfTest() and privacyAudit() — both must PASS before sharing the sheet
+6. Point docs/index.html at the sheet id (SHEET_ID) and serve docs/ (GitHub Pages)
 ```
 
 `probeOanda()`, `probeMasGw()` and `probeGoogleFinance()` verify each source independently before
@@ -120,5 +131,6 @@ a full run.
 
 ## Licence
 
-MIT. The published page exposes the Dashboard tab only; the underlying workbook, its
-configuration and its account tabs are not reachable from it.
+MIT. The workbook is public by design: every tab can be read through the gviz endpoint, so
+`privacyAudit()` enforces a tab whitelist, no secret values in Config, and no credential-shaped
+text in Log or Diagnostics. Nothing personal — positions, accounts, keys — is ever written to it.
