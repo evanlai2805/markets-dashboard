@@ -48,8 +48,11 @@ async function tab(name, tq){
   const u=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=1&sheet=${encodeURIComponent(name)}`+(tq?`&tq=${encodeURIComponent(tq)}`:'')+`&_=${Date.now()}`;
   const r=await fetch(u, { redirect:'follow' }); if(!r.ok) return null;
   const t=await r.text(); if(t.trimStart().startsWith('<')) return null;   // HTML = tab missing / not public
-  return parseCsv(t);
+  const rows=parseCsv(t); const want=TAB_HEAD[name];
+  if(want && (!rows[0] || String(rows[0][0]).trim()!==want)) return null;    // gviz serves the FIRST sheet for a missing tab
+  return rows;
 }
+const TAB_HEAD = { DashStats:'series_id', DashSeries:'Date', Live:'group', RatiosLatest:'group', Ratios:'Date', Notes:'key', Meta:'key', Series:'series_id', Health:'series_id', Config:'key', Log:null, Diagnostics:null };
 const col = (rows, name) => { const i=rows[0].indexOf(name); return i<0?null:rows.slice(1).map(r=>r[i]); };
 
 test('DashStats legacy header A:P is unchanged', async ()=>{

@@ -218,13 +218,18 @@ function parseCsv(text){
   if(f!==''||row.length){ row.push(f); rows.push(row); }
   return rows;
 }
+// gviz answers a request for a MISSING tab with the first sheet, not an error — so every tab is
+// verified by its expected first header cell and treated as missing if it does not match.
+const TAB_HEAD = { DashStats:'series_id', DashSeries:'Date', Live:'group', RatiosLatest:'group', Ratios:'Date', Notes:'key', Meta:'key', Series:'series_id', Health:'series_id' };
 async function tab(name, tq){
   let url;
   if(FIXTURES) url = FIXTURES.replace(/\/$/,'')+'/'+name+'.csv';
   else url = 'https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?tqx=out:csv&headers=1&sheet='+encodeURIComponent(name)+(tq?'&tq='+encodeURIComponent(tq):'')+'&_='+Date.now();
   const r = await fetch(url); if(!r.ok) throw new Error(name+': HTTP '+r.status);
   const t = await r.text(); if(t.trimStart().startsWith('<')) throw new Error(name+': not a CSV (tab missing or sheet not public)');
-  return parseCsv(t);
+  const rows = parseCsv(t); const want = TAB_HEAD[name];
+  if(want && (!rows[0] || String(rows[0][0]).trim() !== want)) throw new Error(name+': tab missing (gviz returned another sheet)');
+  return rows;
 }
 const num = v => { if(v==null||v==='') return null; const x=parseFloat(String(v).replace(/[%,$]/g,'')); return isFinite(x)?x:null; };
 function loadStats(rows){
